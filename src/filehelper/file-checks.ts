@@ -19,6 +19,7 @@ import { resolve } from "node:path";
 import { fsScopeCovers } from "../main/broker/permissions.js";
 import { isInsideInstance } from "../main/instance.js";
 import { extensionOf, FILE_TYPES, PROGRAM_EXTENSIONS, type FileType } from "./file-types.js";
+import { checkSyntax as pureSyntax, PathSyntaxError } from "./path-syntax.js";
 import * as win from "./win32.js";
 
 export type FileErrorCode = "PermissionDenied" | "NotFound" | "InvalidArgument" | "TooLarge" | "IOError";
@@ -31,32 +32,13 @@ export interface Scope { path: string; recursive: boolean }
 export interface CheckContext { instanceRoot: string; scope: Scope }
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$|clock\$)$/i;
 
 // ---------- 1. syntax ----------
+// In path-syntax.ts (pure), so the broker can run it on the raw path too. Its errors are mapped here.
 
-/** Returns the normalized path ("C:\a\b") or throws. */
 export function checkSyntax(raw: unknown): string {
-  const fail = (why: string): never => { throw new FileCheckError("InvalidArgument", "syntax", `invalid path: ${why}`); };
-  if (typeof raw !== "string" || raw.length === 0) fail("not a string");
-  const s = raw as string;
-  if (s.length > 260) fail("longer than 260 characters");
-  if (/^[\\/]{2}/.test(s)) fail("network, device and \\\\?\\ paths are not allowed");
-  const p = s.replace(/\//g, "\\");
-  const m = /^([A-Za-z]):\\(.*)$/.exec(p);
-  if (!m) fail("must be a full path starting with a drive letter, such as C:\\");
-  const parts = m![2].split("\\");
-  if (parts.length && parts[parts.length - 1] === "") parts.pop();   // one trailing backslash is fine
-  for (const c of parts) {
-    if (c === "") fail("empty folder name (double backslash)");
-    if (c === "." || c === "..") fail("\".\" and \"..\" are not allowed");
-    // eslint-disable-next-line no-control-regex
-    if (/[<>:"|?*\x00-\x1f]/.test(c)) fail(`"${c}" contains a character Windows reserves (: < > " | ? * or a control character); ":" would name an alternate data stream`);
-    if (/[. ]$/.test(c)) fail(`"${c}" ends with a dot or a space`);
-    if (RESERVED.test(c.split(".")[0].trim())) fail(`"${c}" is a reserved device name`);
-    if (c.length > 255) fail("a name is longer than 255 characters");
-  }
-  return `${m![1].toUpperCase()}:\\${parts.join("\\")}`;
+  try { return pureSyntax(raw); }
+  catch (e) { if (e instanceof PathSyntaxError) throw new FileCheckError("InvalidArgument", "syntax", e.message); throw e; }
 }
 
 // ---------- 2. scope ----------

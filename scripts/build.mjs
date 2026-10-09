@@ -11,6 +11,7 @@ mkdirSync("dist/renderer", { recursive: true });
 
 await Promise.all([
   build({ ...common, entryPoints: ["src/main/index.ts"], outfile: "dist/main/index.js", platform: "node", format: "cjs", external: ["electron", "koffi"] }),
+  build({ ...common, entryPoints: ["src/filehelper/main.ts"], outfile: "dist/filehelper/main.js", platform: "node", format: "cjs", external: ["electron", "koffi"] }),
   build({ ...common, entryPoints: ["src/preload/card.ts"], outfile: "dist/preload/card.js", platform: "browser", format: "cjs", external: ["electron"] }),
   build({ ...common, entryPoints: ["src/preload/dashboard.ts"], outfile: "dist/preload/dashboard.js", platform: "browser", format: "cjs", external: ["electron"] }),
   build({ ...common, entryPoints: ["src/card-runtime/runtime.ts"], outfile: "dist/card-runtime/runtime.js", platform: "browser", format: "esm", sourcemap: false }),

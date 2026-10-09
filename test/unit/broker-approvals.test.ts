@@ -23,6 +23,7 @@ function env(permissions: ApprovalRecord["permissions"]) {
     sysinfo: async (f) => ({ field: f }),
     ui: { setStatus() {}, notify() {}, setAccent() {}, openLink: async () => {}, confirm: async () => false },
     storage: { get: async () => undefined, set: async () => {}, remove: async () => {} },
+    files: { call: async () => null, watch: async () => () => undefined },
     stopCard: (id, reason) => stopped.push(`${id}: ${reason}`),
   };
   const broker = new Broker(approvals, audit, services, { instanceRoot: join(dir, "Build"), resolvePath: (p) => p, maxDenials: 3 });

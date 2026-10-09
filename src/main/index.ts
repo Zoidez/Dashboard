@@ -13,6 +13,7 @@ import { CardHost } from "./cards/card-host.js";
 import { assertInstance, instancePaths, instanceRootFrom } from "./instance.js";
 import { sysinfo } from "./services/sysinfo.js";
 import { CardStorage } from "./services/storage.js";
+import { FileHelper } from "./services/files.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
 
@@ -50,6 +51,7 @@ app.on("web-contents-created", (_e, wc) => {
 const audit = new AuditLog(paths.audit);
 const approvals = new ApprovalStore(paths.approvals);
 const storage = new CardStorage(paths.config);
+const files = new FileHelper(join(distDir, "filehelper", "main.js"));
 let win: BrowserWindow | null = null;
 let host: CardHost | null = null;
 const lastLink = new Map<string, number>();
@@ -133,6 +135,7 @@ app.whenReady().then(async () => {
       set: (id, k, v) => storage.set(id, k, v),
       remove: (id, k) => storage.remove(id, k),
     },
+    files: { call: (op, args, ctx) => files.call(op, args, ctx), watch: (p, ctx, cb) => files.watch(p, ctx, cb) },
     stopCard: (id, reason) => setImmediate(() => host?.stop(id, reason, "error")),
   }, { instanceRoot: paths.root, resolvePath: (p) => (p.startsWith("./") ? resolve(paths.root, p) : resolve(p)) });
 
@@ -148,7 +151,7 @@ app.whenReady().then(async () => {
   }, approvals, broker, audit);
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths };
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files };
 
   ipcMain.on("dashboard:ready", (e) => { if (e.sender === w.webContents) layout(); });
   await w.loadFile(join(distDir, "renderer", "index.html"));
@@ -156,5 +159,5 @@ app.whenReady().then(async () => {
   layout();
 });
 
-app.on("before-quit", () => host?.stopAll("the Dashboard quit"));
+app.on("before-quit", () => { host?.stopAll("the Dashboard quit"); files.stop(); });
 app.on("window-all-closed", () => app.quit());

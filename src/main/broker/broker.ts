@@ -17,6 +17,7 @@ import type { ApprovalStore, ApprovalRecord } from "../cards/approvals.js";
 import { isInsideInstance } from "../instance.js";
 import { METHODS, RESERVED_RE, validateCall, type ErrorCode, type RetMsg, type EvtMsg } from "../../shared/protocol.js";
 import { brokerRequest, NetError, type NetDeps } from "./net.js";
+import { checkSyntax, PathSyntaxError } from "../../filehelper/path-syntax.js";
 import { findCovering, type CapabilityRequest, type Permission, type SysinfoField } from "./permissions.js";
 
 export class HostError extends Error {
@@ -38,6 +39,8 @@ export class CardSession {
   readonly grants = new Map<number, Grant>();
   readonly resources = new Set<Closeable>();
   readonly inflight = new Set<AbortController>();
+  readonly watches = new Map<number, Closeable>();
+  lastWatchId = 0;
   ended = false;
   endReason = "";
   denials = 0;
@@ -73,6 +76,11 @@ export interface HostServices {
     get(cardId: string, key: string): Promise<unknown>;
     set(cardId: string, key: string, value: unknown): Promise<void>;
     remove(cardId: string, key: string): Promise<void>;
+  };
+  /** The native file helper; it runs the file check protocol (src/filehelper). */
+  files: {
+    call(op: string, args: unknown[], ctx: { instanceRoot: string; scope: { path: string; recursive: boolean } }): Promise<unknown>;
+    watch(path: string, ctx: { instanceRoot: string; scope: { path: string; recursive: boolean } }, onEvent: (ev: unknown) => void): Promise<() => void>;
   };
   /** The broker asks the host to stop a card (repeated denials, rate abuse, revoked approval). */
   stopCard(cardId: string, reason: string): void;
@@ -141,6 +149,7 @@ export class Broker {
     s.inflight.clear();
     for (const r of s.resources) { try { r.close(); } catch { /* already closed */ } }
     s.resources.clear();
+    s.watches.clear();
     const dropped = s.grants.size;
     s.grants.clear();
     try { s.port.close(); } catch { /* already closed */ }
@@ -311,16 +320,55 @@ export class Broker {
       return this.services.sysinfo(field, m);
     }
 
+    if (m === "fs.unwatch") {
+      const id = typeof a[0] === "number" ? a[0] : -1;
+      const w = s.watches.get(id);
+      if (!w) throw new HostError("NotFound", "no such watch");
+      s.watches.delete(id);
+      s.resources.delete(w);
+      w.close();
+      return null;
+    }
+
     const fsType = FS_METHOD_TYPE[m];
     if (fsType) {
-      const path = this.opts.resolvePath(str(a[0], "path", 260));
+      // The raw path goes through the protocol's syntax check first; nothing normalizes it before.
+      let path: string;
+      try { path = checkSyntax(str(a[0], "path", 260)); }
+      catch (e) {
+        if (e instanceof PathSyntaxError) { this.audit.write(s.cardId, "denied", `${m}: ${e.message}`); this.countDenial(s); throw new HostError("InvalidArgument", e.message); }
+        throw e;
+      }
       if (isInsideInstance(this.opts.instanceRoot, path)) {
         this.audit.write(s.cardId, "denied", `${m} inside the Dashboard's instance folder: ${path}`);
         this.countDenial(s);
         throw new HostError("PermissionDenied", "cards can never access the Dashboard's own folder");
       }
-      this.grant(s, { type: fsType, path }, `${fsType} ${path}`);
-      throw new HostError("IOError", "file access is not available in this build yet (the native file helper is not built)");
+      const perm = this.grant(s, { type: fsType, path }, `${fsType} ${path}`) as Extract<Permission, { type: "fs.read" | "fs.write" | "fs.delete" }>;
+      if (fsType === "fs.delete") throw new HostError("IOError", "deleting files is not available in this build yet");
+      // The helper runs the full file check protocol against the scope of the covering permission.
+      const ctx = { instanceRoot: this.opts.instanceRoot, scope: { path: this.opts.resolvePath(perm.path), recursive: perm.recursive ?? false } };
+      const op = m.slice(3);
+      try {
+        if (op === "watch") {
+          const id = ++s.lastWatchId;
+          const stop = await this.services.files.watch(path, ctx, (ev) => this.emit(s, `fs.watch:${id}`, ev));
+          const res: Closeable = { close: stop };
+          if (s.ended) { stop(); throw new HostError("IOError", "the card stopped"); }
+          s.watches.set(id, res);
+          s.resources.add(res);
+          return id;
+        }
+        const v = await this.services.files.call(op, [path, ...a.slice(1)], ctx);
+        if (fsType === "fs.write") this.audit.write(s.cardId, "fs", `${op} ${path}`);
+        return v;
+      } catch (e) {
+        const fe = e as { code?: string; check?: string; message?: string };
+        if (e instanceof HostError) throw e;
+        if (fe.code === "PermissionDenied") { this.audit.write(s.cardId, "denied", `${op} ${path}: ${fe.message} [check: ${fe.check}]`); this.countDenial(s); }
+        const code = (["PermissionDenied", "NotFound", "InvalidArgument", "TooLarge", "IOError", "Timeout"].includes(fe.code ?? "") ? fe.code : "IOError") as ErrorCode;
+        throw new HostError(code, fe.message ?? "file operation failed");
+      }
     }
 
     if (m.startsWith("reports.")) {
@@ -329,7 +377,6 @@ export class Broker {
       throw new HostError("IOError", "reports are not available in this build yet");
     }
 
-    if (m === "fs.unwatch") throw new HostError("NotFound", "no such watch");
     throw new HostError("InvalidArgument", `unknown method ${m}`);
   }
 }

@@ -77,7 +77,14 @@ async function main(): Promise<void> {
       appendText: (p, t) => call("fs.appendText", p, t),
       mkdir: (d) => call("fs.mkdir", d),
       remove: (p) => call("fs.remove", p),
-      watch: async (d) => { await call("fs.watch", d); return () => undefined; },
+      watch: async (d, onChange) => {
+        const id = (await call("fs.watch", d)) as number;
+        const ch = `fs.watch:${id}`;
+        const cb = (v: unknown) => { const e = v as { event?: "add" | "change" | "unlink"; path?: string }; if (e?.event && e.path) onChange(e.event, e.path); };
+        if (!listeners.has(ch)) listeners.set(ch, new Set());
+        listeners.get(ch)!.add(cb);
+        return () => { listeners.delete(ch); fire("fs.unwatch", id); };
+      },
     },
     net: {
       request: async (req) => {
