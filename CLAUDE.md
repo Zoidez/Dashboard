@@ -31,7 +31,8 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 ## Current state (2026-10-09)
 - Runtime skeleton built and tested (see `docs\PROJECT.md`, Status). CLI gate still a prototype: rework for the tested list.
 - File access done (`src/filehelper`, the file check protocol, A4 incl. 5-minute races: `npm run test:race`).
-- **Next:** reports and the watch-feed cards, then background workers, the React grid, the generator pipeline.
+- Watch feeds done (reports, feed service, safe Markdown, reference card, interim approval dialog).
+- **Next:** background workers, the React grid and Options, the generator pipeline.
 
 ## Working in this repo
 - Use the project's Node: prepend `tools\node` to PATH (Node 24.21.0; the system Node 20 is too old for Electron 44).

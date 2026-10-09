@@ -14,6 +14,10 @@ import { assertInstance, instancePaths, instanceRootFrom } from "./instance.js";
 import { sysinfo } from "./services/sysinfo.js";
 import { CardStorage } from "./services/storage.js";
 import { FileHelper } from "./services/files.js";
+import { OptionsStore } from "./options.js";
+import { FeedService } from "./reports/feeds.js";
+import { feedCard, feedCardId, installCard, reviewText, type Decide } from "./cards/install.js";
+import { existsSync } from "node:fs";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
 
@@ -52,6 +56,8 @@ const audit = new AuditLog(paths.audit);
 const approvals = new ApprovalStore(paths.approvals);
 const storage = new CardStorage(paths.config);
 const files = new FileHelper(join(distDir, "filehelper", "main.js"));
+const options = new OptionsStore(join(paths.config, "options.json"));
+const feeds = new FeedService(paths.reports, () => options.feeds, audit);
 let win: BrowserWindow | null = null;
 let host: CardHost | null = null;
 const lastLink = new Map<string, number>();
@@ -95,11 +101,44 @@ function createWindow(): BrowserWindow {
   return w;
 }
 
+/** Interim approval dialog (the approval canvas replaces it). Default button: Cancel. */
+const askUser: Decide = async (r) => {
+  if (!win) return false;
+  const red = r.display.red;
+  const res = await dialog.showMessageBox(win, {
+    type: red || r.display.yellow ? "warning" : "question",
+    title: "Approve card",
+    message: `Install the card "${r.name}"? It asks for:`,
+    detail: reviewText(r) + (red ? "\n\nThis card has RED markings. Do you want to allow this permission combination?" : ""),
+    buttons: red ? ["No", "Yes, only now"] : ["Cancel", "Approve"],
+    defaultId: 0, cancelId: 0, noLink: true,
+  });
+  return res.response === 1;
+};
+
+/** Installs a watch-feed card for every configured feed that has none yet. */
+async function installFeedCards(decide: Decide = askUser): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const f of options.feeds) {
+    const id = feedCardId(f);
+    if (existsSync(join(paths.cards, id))) { out[id] = "already installed"; continue; }
+    try {
+      const r = await installCard(await feedCard(f, join(distDir, "cards")), { cards: paths.cards, approvals: paths.approvals, config: paths.config }, (t) => options.feed(t)?.name ?? t, decide);
+      out[id] = r;
+      if (r === "installed") await host?.start(id);
+    } catch (e) { out[id] = `failed: ${(e as Error).message}`; }
+  }
+  return out;
+}
+
 function buildMenu(): void {
   // Our own menu: no Reload, no DevTools accelerators that could act on a card view.
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: "File", submenu: [{ label: "Quit", accelerator: "Ctrl+Q", click: () => app.quit() }] },
-    { label: "Cards", submenu: [{ label: "Rescan cards", click: () => void host?.startAll() }] },
+    { label: "Cards", submenu: [
+      { label: "Install watch-feed cards…", click: () => void installFeedCards() },
+      { label: "Rescan cards", click: () => void host?.startAll() },
+    ] },
     { label: "Help", submenu: [{ label: "Open instance folder", click: () => void shell.openPath(paths.root) }] },
   ]));
 }
@@ -136,6 +175,7 @@ app.whenReady().then(async () => {
       remove: (id, k) => storage.remove(id, k),
     },
     files: { call: (op, args, ctx) => files.call(op, args, ctx), watch: (p, ctx, cb) => files.watch(p, ctx, cb) },
+    reports: { isFeed: (t) => feeds.isFeed(t), state: (t) => feeds.state(t), history: (t, n) => feeds.historyOf(t, n), onChange: (t, cb) => feeds.onChange(t, cb) },
     stopCard: (id, reason) => setImmediate(() => host?.stop(id, reason, "error")),
   }, { instanceRoot: paths.root, resolvePath: (p) => (p.startsWith("./") ? resolve(paths.root, p) : resolve(p)) });
 
@@ -151,13 +191,14 @@ app.whenReady().then(async () => {
   }, approvals, broker, audit);
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files };
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards };
 
   ipcMain.on("dashboard:ready", (e) => { if (e.sender === w.webContents) layout(); });
   await w.loadFile(join(distDir, "renderer", "index.html"));
+  await feeds.start();
   await host.startAll();
   layout();
 });
 
-app.on("before-quit", () => { host?.stopAll("the Dashboard quit"); files.stop(); });
+app.on("before-quit", () => { host?.stopAll("the Dashboard quit"); files.stop(); feeds.stop(); });
 app.on("window-all-closed", () => app.quit());

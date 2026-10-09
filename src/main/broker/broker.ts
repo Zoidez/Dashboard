@@ -40,6 +40,7 @@ export class CardSession {
   readonly resources = new Set<Closeable>();
   readonly inflight = new Set<AbortController>();
   readonly watches = new Map<number, Closeable>();
+  readonly reportWatches = new Map<string, Closeable>();
   lastWatchId = 0;
   ended = false;
   endReason = "";
@@ -76,6 +77,13 @@ export interface HostServices {
     get(cardId: string, key: string): Promise<unknown>;
     set(cardId: string, key: string, value: unknown): Promise<void>;
     remove(cardId: string, key: string): Promise<void>;
+  };
+  /** Feed reports (src/main/reports/feeds.ts). */
+  reports: {
+    isFeed(taskId: string): boolean;
+    state(taskId: string): unknown;
+    history(taskId: string, limit: number): unknown;
+    onChange(taskId: string, cb: (state: unknown) => void): () => void;
   };
   /** The native file helper; it runs the file check protocol (src/filehelper). */
   files: {
@@ -150,6 +158,7 @@ export class Broker {
     for (const r of s.resources) { try { r.close(); } catch { /* already closed */ } }
     s.resources.clear();
     s.watches.clear();
+    s.reportWatches.clear();
     const dropped = s.grants.size;
     s.grants.clear();
     try { s.port.close(); } catch { /* already closed */ }
@@ -373,7 +382,25 @@ export class Broker {
     if (m.startsWith("reports.")) {
       const taskId = str(a[0], "taskId", 80);
       this.grant(s, { type: "reports.read", taskId }, `reports of ${taskId}`);
-      throw new HostError("IOError", "reports are not available in this build yet");
+      const feeds = this.services.reports;
+      if (!feeds.isFeed(taskId)) throw new HostError("NotFound", `${taskId} is not a watched feed (File > Options > Feeds)`);
+      switch (m) {
+        case "reports.state": return feeds.state(taskId);
+        case "reports.history": return feeds.history(taskId, typeof a[1] === "number" ? a[1] : 30);
+        case "reports.watch": {
+          if (s.reportWatches.has(taskId)) return null;
+          const stop = feeds.onChange(taskId, (st) => this.emit(s, `reports:${taskId}`, st));
+          const res: Closeable = { close: stop };
+          s.reportWatches.set(taskId, res);
+          s.resources.add(res);
+          return null;
+        }
+        case "reports.unwatch": {
+          const w = s.reportWatches.get(taskId);
+          if (w) { w.close(); s.reportWatches.delete(taskId); s.resources.delete(w); }
+          return null;
+        }
+      }
     }
 
     throw new HostError("InvalidArgument", `unknown method ${m}`);

@@ -19,3 +19,4 @@ await Promise.all([
 ]);
 cpSync("src/renderer/index.html", "dist/renderer/index.html");
 cpSync("src/renderer/dashboard.css", "dist/renderer/dashboard.css");
+cpSync("cards", "dist/cards", { recursive: true });   // reference cards that ship with the Dashboard

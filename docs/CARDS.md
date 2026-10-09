@@ -1,6 +1,6 @@
 # Dashboard — Reference cards (v0)
 
-Hand-written cards that ship with the Dashboard. They are the generator's examples to copy (GENERATOR-PROMPT.md), the validator's test cases (VALIDATOR.md), and the first cards on the grid. Written by Claude, reviewed by the user, approved like any other card. Code to follow; this file fixes what each card is and asks for.
+Hand-written cards that ship with the Dashboard (source in `cards/`; the watch feed is built and installs from Cards > Install watch-feed cards…). They are the generator's examples to copy (GENERATOR-PROMPT.md), the validator's test cases (VALIDATOR.md), and the first cards on the grid. Written by Claude, reviewed by the user, approved like any other card. Code to follow; this file fixes what each card is and asks for.
 
 ## 1. New (permanent card)
 The card for making and changing cards. Called "the Claude card" in older docs; its title on the grid is **New**. It is part of the host, not a sandboxed card: it is the only place that can start the generator (RULES.md, host invariant 1). It cannot be removed.

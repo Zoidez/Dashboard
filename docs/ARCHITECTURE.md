@@ -6,7 +6,7 @@ Status: agreed direction, not implemented. Sections marked DRAFT are proposals, 
 - Shell: Electron (main process + renderers), TypeScript throughout
 - Distribution: **portable instance folder**. For v1 the instance is `<project dir>/Build/`, and the app runs from there.
 - Native access — **host only, never card code**: Win32 file handles via a host-owned native file helper; `systeminformation`; `child_process` only for the host's own use (the generator CLI). The host calls Windows functions (CreateFileW and friends) only inside its own file helper, through koffi; cards can never call DLLs (removed permanently, user decision 2026-10-09).
-- Card hot-reload and exchange watching: `chokidar`
+- Card hot-reload and exchange watching: Node `fs.watch` with a settle window and periodic rescan (decision 2026-10-09; chokidar not needed)
 - UI: React for the Dashboard's own interface. Card contract is framework-agnostic.
 - Claude: **the unmodified Claude Code CLI (`claude.exe`) shipped inside the instance, run headless on the user's subscription login**, one persistent conversation per card (RULES.md "Generator").
 

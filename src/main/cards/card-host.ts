@@ -357,10 +357,18 @@ function indexHtml(dark: boolean): string {
   return `<!doctype html>
 <html data-theme="${dark ? "dark" : "light"}"><head><meta charset="utf-8">
 <style>
-:root{color-scheme:light dark;--bg:#ffffff;--fg:#1d2330;--muted:#5b6475;--border:#d8dce3}
-:root[data-theme=dark]{--bg:#1b1f27;--fg:#e6e9ef;--muted:#a3abba;--border:#363c48}
+:root{color-scheme:light;--bg:#ffffff;--fg:#1d2330;--muted:#5b6475;--border:#d8dce3;--link:#0b57c2;
+--sev-none-bg:#ffffff;--sev-none-fg:#1d2330;--sev-low-bg:#e3e9f0;--sev-low-fg:#1f2d3d;--sev-medium-bg:#fff1cc;--sev-medium-fg:#4a3500;
+--sev-high-bg:#ffe0d1;--sev-high-fg:#5c1d00;--sev-critical-bg:#fbd5d2;--sev-critical-fg:#5f0f0a}
+:root[data-theme=dark]{color-scheme:dark;--bg:#1b1f27;--fg:#e6e9ef;--muted:#a3abba;--border:#363c48;--link:#8ab4ff;
+--sev-none-bg:#1b1f27;--sev-none-fg:#e6e9ef;--sev-low-bg:#26313d;--sev-low-fg:#dbe5f0;--sev-medium-bg:#3d3010;--sev-medium-fg:#ffe7a8;
+--sev-high-bg:#45230f;--sev-high-fg:#ffd2bb;--sev-critical-bg:#4a1714;--sev-critical-fg:#ffd0cc}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 "Segoe UI",system-ui,sans-serif}
 #card{height:100%;box-sizing:border-box;padding:10px;overflow:auto}
+.md-link{color:var(--link);text-decoration:underline;cursor:pointer}
+#card pre{overflow:auto;padding:6px;border:1px solid var(--border);border-radius:4px}
+#card table{border-collapse:collapse}#card th,#card td{border:1px solid var(--border);padding:2px 6px;text-align:left}
+#card blockquote{margin:6px 0;padding-left:8px;border-left:3px solid var(--border)}
 </style></head>
 <body><div id="card"></div><script type="module" src="/__host/runtime.js"></script></body></html>`;
 }

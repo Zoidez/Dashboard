@@ -5,6 +5,7 @@
  * that is fine: the port only carries this card's own identity, and the broker checks everything.
  */
 import type { HostApi, HostError as HostErrorT, ErrorCode } from "../../spec/host-api.js";
+import { parse, type Block, type Inline } from "../shared/markdown.js";
 
 type Ret = { t: "ret"; id: number; ok: true; v: unknown } | { t: "ret"; id: number; ok: false; e: { code: ErrorCode; message: string } };
 type Evt = { t: "evt"; ch: string; v: unknown };
@@ -14,6 +15,64 @@ function hostError(code: ErrorCode, message: string): HostErrorT {
   e.name = "HostError";
   (e as { code: ErrorCode }).code = code;
   return e;
+}
+
+/** Builds DOM from the safe Markdown tree. Content only ever becomes text nodes; no attribute comes from it except a link's title. */
+function renderMarkdown(blocks: Block[], open: (href: string) => void): DocumentFragment {
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K) => document.createElement(tag);
+  const inl = (parent: HTMLElement, nodes: Inline[]): void => {
+    for (const n of nodes) {
+      switch (n.t) {
+        case "text": parent.appendChild(document.createTextNode(n.v)); break;
+        case "br": parent.appendChild(el("br")); break;
+        case "code": { const c = el("code"); c.textContent = n.v; parent.appendChild(c); break; }
+        case "strong": case "em": case "del": { const c = el(n.t === "strong" ? "strong" : n.t === "em" ? "em" : "del"); inl(c, n.c); parent.appendChild(c); break; }
+        case "link": {
+          // No href: a click never navigates the card view; the host opens the URL in the browser.
+          const a = el("a");
+          a.className = "md-link";
+          a.title = n.href;
+          a.tabIndex = 0;
+          a.setAttribute("role", "link");
+          const go = (e: Event) => { e.preventDefault(); open(n.href); };
+          a.addEventListener("click", go);
+          a.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") go(e); });
+          inl(a, n.c);
+          parent.appendChild(a);
+          break;
+        }
+      }
+    }
+  };
+  const blk = (parent: Node, list: Block[]): void => {
+    for (const b of list) {
+      switch (b.t) {
+        case "h": { const h = el(`h${Math.min(6, Math.max(1, b.level))}` as "h1"); inl(h, b.c); parent.appendChild(h); break; }
+        case "p": { const p = el("p"); inl(p, b.c); parent.appendChild(p); break; }
+        case "pre": { const pre = el("pre"); const c = el("code"); c.textContent = b.v; pre.appendChild(c); parent.appendChild(pre); break; }
+        case "quote": { const q = el("blockquote"); blk(q, b.c); parent.appendChild(q); break; }
+        case "hr": parent.appendChild(el("hr")); break;
+        case "list": {
+          const l = el(b.ordered ? "ol" : "ul");
+          for (const item of b.items) { const li = el("li"); blk(li, item); l.appendChild(li); }
+          parent.appendChild(l);
+          break;
+        }
+        case "table": {
+          const t = el("table"), thead = el("thead"), tbody = el("tbody"), hr = el("tr");
+          for (const c of b.head) { const th = el("th"); inl(th, c); hr.appendChild(th); }
+          thead.appendChild(hr);
+          for (const row of b.rows) { const tr = el("tr"); for (const c of row) { const td = el("td"); inl(td, c); tr.appendChild(td); } tbody.appendChild(tr); }
+          t.append(thead, tbody);
+          parent.appendChild(t);
+          break;
+        }
+      }
+    }
+  };
+  const frag = document.createDocumentFragment();
+  blk(frag, blocks);
+  return frag;
 }
 
 function getPort(): Promise<MessagePort> {
@@ -113,7 +172,13 @@ async function main(): Promise<void> {
     reports: {
       state: (t) => call("reports.state", t),
       history: (t, n) => call("reports.history", t, n),
-      onChange: (t) => { fire("reports.watch", t); return () => undefined; },
+      onChange: (t, cb) => {
+        const ch = `reports:${t}`;
+        if (!listeners.has(ch)) { listeners.set(ch, new Set()); fire("reports.watch", t); }
+        const fn = (v: unknown) => cb(v as never);
+        listeners.get(ch)!.add(fn);
+        return () => { const set = listeners.get(ch); set?.delete(fn); if (set && set.size === 0) { listeners.delete(ch); fire("reports.unwatch", t); } };
+      },
     },
     storage: {
       get: (k) => call("storage.get", k),
@@ -121,16 +186,9 @@ async function main(): Promise<void> {
       remove: (k) => call("storage.remove", k),
     },
     ui: {
-      markdown: (src) => {
-        // Interim: plain text paragraphs, never HTML. The sanitized Markdown renderer comes with the feed cards.
-        const frag = document.createDocumentFragment();
-        for (const para of String(src).split(/\n{2,}/)) {
-          const p = document.createElement("p");
-          p.textContent = para;
-          frag.appendChild(p);
-        }
-        return frag;
-      },
+      markdown: (src) => renderMarkdown(parse(String(src)), (href) => {
+        call("ui.openLink", href).catch((e: Error) => fire("ui.notify", `Could not open the link: ${e.message}`, "warning"));
+      }),
       openLink: (url) => call("ui.openLink", url),
       confirm: (message, opts) => call("ui.confirm", message, opts ?? {}),
       notify: (message, level) => fire("ui.notify", message, level ?? "info"),

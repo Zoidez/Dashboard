@@ -103,3 +103,8 @@ const results = {};
 async function report(api, key, value) { results[key] = value; await api.storage.set("results", results); }
 async function attempt(fn) { try { const v = await fn(); return { ok: true, v: v === undefined ? null : String(v).slice(0, 200) }; } catch (e) { return { ok: false, code: e && e.code, msg: String(e && e.message || e).slice(0, 200) }; } }
 `;
+
+/** Waits until the main process has set up the host (its test handle exists). */
+export async function ready(app: ElectronApplication): Promise<void> {
+  await waitFor(() => app.evaluate(() => !!(globalThis as any).__dashboard?.host), "the host to start");
+}
