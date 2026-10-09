@@ -1,0 +1,12 @@
+# Instance state: never committed, never touched by builds
+Build/data/
+Build/ClaudeExchange/reports/**/*.json
+Build/ClaudeExchange/staging/
+Build/app/
+node_modules/
+dist/
+spikes/results-*.txt
+
+# Spike working files: downloads, npm cache, Process Monitor captures (large; raw output may contain the account e-mail)
+spikes/_tmp/
+spikes/results/*/raw/

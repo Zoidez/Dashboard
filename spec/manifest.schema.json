@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dashboard://schemas/manifest.v0.json",
+  "title": "Dashboard card manifest, apiVersion 0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "apiVersion",
+    "permissions"
+  ],
+  "properties": {
+    "id": {
+      "description": "Stable card ID. Also the folder name under data/cards/.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,47}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "version": {
+      "description": "Semantic version of the card itself. Bumped by every approved update.",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "apiVersion": {
+      "description": "Host API version the card is written against. Only 0 exists.",
+      "const": 0
+    },
+    "preset": {
+      "description": "Preset the card is built on (PRESETS.md), if any.",
+      "enum": [
+        "watch-feed"
+      ]
+    },
+    "worker": {
+      "description": "true if the card ships a worker.js: background logic that runs as a Web Worker inside the card's own sandboxed view. No Node.js; it uses the same host API over the card's port.",
+      "type": "boolean",
+      "default": false
+    },
+    "defaultSize": {
+      "description": "Initial grid size in cells. The user can resize afterwards.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "w",
+        "h"
+      ],
+      "properties": {
+        "w": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "h": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        }
+      }
+    },
+    "schedule": {
+      "description": "How often the host calls the worker's tick(). Omit for no timer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intervalSeconds"
+      ],
+      "properties": {
+        "intervalSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        }
+      }
+    },
+    "permissions": {
+      "description": "Every capability the card needs, each scoped as narrowly as possible. May be empty.",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/permission"
+      }
+    },
+    "channels": {
+      "description": "RESERVED for the inter-card bus. In apiVersion 0 both lists must be empty.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "emits": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "listens": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    "configSchema": {
+      "description": "Settings the user can edit in the card's settings panel. A restricted JSON Schema: an object of flat, typed fields.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "properties"
+      ],
+      "properties": {
+        "type": {
+          "const": "object"
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "type": "object",
+          "maxProperties": 24,
+          "additionalProperties": {
+            "$ref": "#/$defs/configField"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "reason": {
+      "description": "One line, shown to the user on the approval canvas: why the card needs this.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160
+    },
+    "path": {
+      "description": "Absolute Windows path (C:\\...) or instance-relative path starting with ./ . No wildcards, no '..' segments.",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 260,
+      "pattern": "^(?:[A-Za-z]:\\\\|\\./)(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[^*?\"<>|]*$"
+    },
+    "permission": {
+      "type": "object",
+      "required": [
+        "type",
+        "reason"
+      ],
+      "oneOf": [
+        {
+          "title": "Read files",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "fs.read"
+            },
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "recursive": {
+              "type": "boolean",
+              "default": false
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "Create and modify files",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "fs.write"
+            },
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "recursive": {
+              "type": "boolean",
+              "default": false
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "Delete files",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "fs.delete"
+            },
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "recursive": {
+              "type": "boolean",
+              "default": false
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "Network requests",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "origin",
+            "methods",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "net.http"
+            },
+            "origin": {
+              "description": "Scheme + host (+ port). HTTPS only, except http://localhost or http://127.0.0.1.",
+              "type": "string",
+              "pattern": "^(https://[a-z0-9.-]+(:[0-9]{1,5})?|http://(localhost|127\\.0\\.0\\.1)(:[0-9]{1,5})?)$"
+            },
+            "pathPrefix": {
+              "type": "string",
+              "pattern": "^/",
+              "default": "/"
+            },
+            "methods": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "GET",
+                  "HEAD",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE"
+                ]
+              }
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "RESERVED: Run a program and read its output. Rejected in apiVersion 0.",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "executable",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "process.run"
+            },
+            "executable": {
+              "$ref": "#/$defs/path"
+            },
+            "args": {
+              "description": "Allowed argument lists. Each entry is an exact list; '{config.<field>}' placeholders are filled from the card's config. Omit = no arguments allowed.",
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              }
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "RESERVED: Launch an application. Rejected in apiVersion 0.",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "executable",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "process.launch"
+            },
+            "executable": {
+              "$ref": "#/$defs/path"
+            },
+            "args": {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              }
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "Read system information",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "fields",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "sysinfo"
+            },
+            "fields": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "cpu",
+                  "memory",
+                  "disk",
+                  "network",
+                  "os",
+                  "battery",
+                  "gpu",
+                  "processes"
+                ]
+              }
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "Read a scheduled task's reports",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "taskId",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "reports.read"
+            },
+            "taskId": {
+              "type": "string",
+              "pattern": "^trig_[A-Za-z0-9]{10,64}$"
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
+          "title": "RESERVED: talk to Claude. Rejected by the validator in apiVersion 0.",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "claude"
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        }
+      ],
+      "not": {
+        "properties": {
+          "type": {
+            "enum": [
+              "process.run",
+              "process.launch",
+              "claude"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "description": "Allowed in apiVersion 0: fs.read, fs.write, fs.delete, net.http, sysinfo, reports.read. process.run, process.launch and claude are reserved (defined for forward compatibility) and rejected. DLL calls (ffi.call) were removed from cards permanently (user decision 2026-10-09) and do not exist."
+    },
+    "configField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "title"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "default": {},
+        "enum": {
+          "type": "array",
+          "maxItems": 32
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "format": {
+          "enum": [
+            "path",
+            "url",
+            "time",
+            "color"
+          ]
+        }
+      }
+    }
+  }
+}

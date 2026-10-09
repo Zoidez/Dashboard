@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dashboard://schemas/report.v0.json",
+  "title": "Scheduled-task report, schemaVersion 0",
+  "type": "object",
+  "required": ["schemaVersion", "taskId", "taskName", "runStartedAt", "runFinishedAt", "status", "severity", "bottomLine", "body", "sources"],
+  "properties": {
+    "schemaVersion": { "const": 0 },
+    "taskId": { "type": "string", "pattern": "^trig_[A-Za-z0-9]{10,64}$" },
+    "taskName": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "runStartedAt": { "type": "string", "format": "date-time" },
+    "runFinishedAt": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["ok", "failed"] },
+    "severity": { "enum": ["none", "low", "medium", "high", "critical"] },
+    "bottomLine": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "body": { "type": "string", "maxLength": 200000 },
+    "sources": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["title", "url"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 300 },
+          "url": { "type": "string", "pattern": "^https?://", "maxLength": 2000 }
+        }
+      }
+    }
+  }
+}

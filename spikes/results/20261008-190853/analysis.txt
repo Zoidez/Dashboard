@@ -1,0 +1,18 @@
+﻿[19:43:44] Spike 1 v3.5 (Option A: CLI runs as you under --restricted)  version=  run=20261008-190853
+[19:43:44] Analyze-only: Process Monitor log of run 20261008-190853 (results go to analysis.txt)
+[19:45:22] PM   PASS  Capture has rows and the expected columns  -- rows=3902216
+[19:45:24] PM   PASS  The CLI's processes were found in the capture  -- processes seen: 248
+[19:45:24] PM   INCONCLUSIVE  Capture completeness  -- no saved list of launched CLI processes; found them from Process Create events instead
+[19:45:24] PM   NOTE  the process tree is rebuilt from PIDs in Process Create events; PID reuse during the capture is not ruled out.
+[19:45:24] PM   INFO  processes in the CLI's tree: 248 (children in raw\child-processes.txt)
+[19:45:24] PM   FAIL  Every child process is claude.exe or conhost.exe, by exact path and SHA-256  -- C:\WINDOWS\system32\cmd.exe (not on the allowlist) | C:\WINDOWS\System32\reg.exe (not on the allowlist) | C:\WINDOWS\System32\where.exe (not on the allowlist)
+[19:45:31] PM   FAIL  No successful file writes outside this run's folder and the CLI config folder  -- CreateFile D:\ProgramFiles\Projects\JavaScript\Dashboard\Build\data\claude.lock | WriteFile D:\$LogFile | WriteFile D:\$Mft
+[19:45:31] PM   INFO  registry writes by the CLI's tree: 7 (raw\registry-writes.txt; under Option A these land in your own registry hive)
+[19:45:32] PM   PASS  No file in the sibling folder was read by the CLI (ReadFile SUCCESS)
+[19:45:39] PM   PASS  No file in your user folder was read or written by the CLI
+[19:45:46] PM   INFO  any operation touching your user folder (opens, queries, failures included): 0 (raw\touches-your-profile.txt)
+[19:45:46] PM   INFO  files read outside the run folder, CLI config, CLI binary and Windows/Program Files/ProgramData: 3 (raw\reads-elsewhere.txt). Review this list: under Option A it shows what the CLI touches of yours.
+[19:45:48] PM   INFO  network destinations of the CLI's tree: 2 (raw\network-destinations.txt)
+[19:45:48] PM   NOTE  Process Monitor shows what happened in this run; it is evidence, not proof of confinement.
+[19:45:48] SUMMARY  4 passed, 2 failed, 1 inconclusive, 0 skipped. Results: D:\ProgramFiles\Projects\JavaScript\Dashboard\spikes\results\20261008-190853\analysis.txt
+[19:45:48] Raw output (may contain your account e-mail; review before sharing): D:\ProgramFiles\Projects\JavaScript\Dashboard\spikes\results\20261008-190853\raw
