@@ -1,20 +1,38 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "dashboard/cli-approval.schema.json",
-  "title": "Claude Code CLI approval record",
-  "description": "Written only by spikes/spike1-cli.ps1 to Build/data/generator/cli-approval.json. Read by the Dashboard's CLI gate (src/main/generator/cli-gate.ts) before every CLI launch. The Dashboard runs the CLI only if status is \"approved\", harness >= the gate's MIN_HARNESS, the installed binary's SHA-256 equals sha256, and the binary reports version.",
-  "type": "object",
-  "required": ["schema", "status", "version", "sha256", "harness", "decidedAt", "runs", "failed", "missing"],
-  "properties": {
-    "schema":    { "const": 1 },
-    "status":    { "enum": ["approved", "blocked", "incomplete"], "description": "approved: every required check passed in at least one qualifying run and none failed. blocked: a required check failed in a qualifying run. incomplete: not every required check has passed yet." },
-    "version":   { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
-    "sha256":    { "type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "SHA-256 of the exact claude.exe the spike tested." },
-    "harness":   { "type": "string", "pattern": "^\\d+(\\.\\d+)*$", "description": "Minimum spike harness version whose runs were counted." },
-    "decidedAt": { "type": "string", "description": "UTC time the record was computed (ISO 8601)." },
-    "runs":      { "type": "array", "items": { "type": "string" }, "description": "Qualifying spike runs (results folder names)." },
-    "failed":    { "type": "array", "items": { "type": "string" }, "description": "Required checks that FAILED in a qualifying run (\"<id>|<check>\")." },
-    "missing":   { "type": "array", "items": { "type": "string" }, "description": "Required checks that have not PASSED in any qualifying run yet." }
-  },
-  "additionalProperties": false
+  "title": "Claude Code CLI tested list",
+  "description": "Written only by spikes/spike1-cli.ps1. Build/data/generator/cli-approvals.json is the tested list (schema 2): one record per CLI build the spike has tested. The spike also writes the last decided record alone to cli-approval.json (schema 1) for older Dashboard builds. The Dashboard's CLI gate (src/main/generator/cli-gate.ts) looks the installed build up by its SHA-256 before every launch and runs it only if that record's status is \"approved\", its harness >= the gate's MIN_HARNESS, and the binary reports the record's version.",
+  "oneOf": [
+    {
+      "title": "Tested list (schema 2)",
+      "type": "object",
+      "required": ["schema", "builds"],
+      "properties": {
+        "schema": { "const": 2 },
+        "builds": { "type": "array", "items": { "$ref": "#/$defs/record" } }
+      },
+      "additionalProperties": false
+    },
+    { "$ref": "#/$defs/record" }
+  ],
+  "$defs": {
+    "record": {
+      "title": "One tested build",
+      "type": "object",
+      "required": ["schema", "status", "version", "sha256", "harness", "decidedAt", "runs", "failed", "missing"],
+      "properties": {
+        "schema":    { "const": 1 },
+        "status":    { "enum": ["approved", "blocked", "incomplete"], "description": "approved: every required check passed in at least one qualifying run and none failed. blocked: a required check failed in a qualifying run. incomplete: not every required check has passed yet." },
+        "version":   { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "sha256":    { "type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "SHA-256 of the exact claude.exe the spike tested." },
+        "harness":   { "type": "string", "pattern": "^\\d+(\\.\\d+)*$", "description": "Minimum spike harness version whose runs were counted." },
+        "decidedAt": { "type": "string", "description": "UTC time the record was computed (ISO 8601)." },
+        "runs":      { "type": "array", "items": { "type": "string" }, "description": "Qualifying spike runs (results folder names)." },
+        "failed":    { "type": "array", "items": { "type": "string" }, "description": "Required checks that FAILED in a qualifying run (\"<id>|<check>\")." },
+        "missing":   { "type": "array", "items": { "type": "string" }, "description": "Required checks that have not PASSED in any qualifying run yet." }
+      },
+      "additionalProperties": false
+    }
+  }
 }

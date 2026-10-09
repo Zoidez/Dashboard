@@ -17,9 +17,28 @@ export interface CardFrame {
   size: { w: number; h: number };
 }
 
+/** The New card (CARDS.md 1): the generator pipeline's state and the CLI gate's. */
+export interface GeneratorView {
+  phase: "idle" | "checking" | "writing" | "validating" | "approval" | "installing" | "done" | "failed" | "stopped";
+  message?: string;
+  progress?: string;
+  errors?: string;
+  cardId?: string;
+  attempt?: number;
+  gate?: { ok: boolean; code?: string; reason?: string; version?: string };
+  /** The CLI build in use, "<version>-<sha12>", if any. */
+  build?: string;
+  testing: boolean;
+  canTest: boolean;
+  targets: Array<{ cardId: string; name: string }>;
+}
+
+export interface NewCardRequest { text: string; target: string; preset: "watch-feed" | null }
+
 export interface DashboardState {
   frames: CardFrame[];
   summary: string;
+  generator: GeneratorView;
 }
 
 /** The frame body rectangle of a running card, in window content coordinates (CSS px). */

@@ -80,6 +80,51 @@ export async function installCard(card: CardFiles, dirs: { cards: string; approv
   }
 }
 
+/**
+ * Installs a generated card the user approved on the canvas. The validated bytes are written into a
+ * host-only folder and hashed again there; they must equal what the validator read and the user saw.
+ * An update swaps folders: the old version is moved aside, the new one renamed in, then the old one removed.
+ */
+export async function installGenerated(
+  card: { cardId: string; manifest: { version: string }; files: Record<string, Buffer>; hashes: Record<string, string> },
+  permissions: Permission[],
+  kind: "new" | "update",
+  dirs: { cards: string; approvals: string; config: string },
+  stopRunning: (cardId: string) => void,
+): Promise<void> {
+  const target = join(dirs.cards, card.cardId);
+  const temp = join(dirs.config, "_install", randomUUID());
+  await fsp.mkdir(temp, { recursive: true });
+  try {
+    for (const [rel, data] of Object.entries(card.files)) {
+      const p = join(temp, ...rel.split("/"));
+      await fsp.mkdir(join(p, ".."), { recursive: true });
+      await fsp.writeFile(p, data);
+    }
+    const hashes = await hashCardFolder(temp);
+    const same = Object.keys(hashes).length === Object.keys(card.hashes).length && Object.entries(hashes).every(([p, h]) => card.hashes[p] === h);
+    if (!same) throw new Error("the files changed between validation and install; nothing was installed");
+    const rec: ApprovalRecord = {
+      schema: 1, cardId: card.cardId, version: card.manifest.version, versionHash: versionHash(hashes), files: hashes,
+      permissions, approvedAt: new Date().toISOString(), revoked: false,
+    };
+    let old: string | null = null;
+    if (kind === "update") {
+      stopRunning(card.cardId);
+      old = join(dirs.config, "_install", `old-${card.cardId}-${randomUUID()}`);
+      await fsp.rename(target, old);
+    } else {
+      try { await fsp.access(target); throw new Error(`${card.cardId} already exists`); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
+    }
+    await fsp.mkdir(dirs.approvals, { recursive: true });
+    await fsp.rename(temp, target);
+    await fsp.writeFile(join(dirs.approvals, `${card.cardId}.json`), JSON.stringify(rec, null, 2));
+    if (old) await fsp.rm(old, { recursive: true, force: true });    // host-only copy of the replaced version
+  } finally {
+    await fsp.rm(temp, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 /** Plain-words text for the interim approval dialog (the approval canvas replaces it). */
 export function reviewText(r: Review): string {
   const out: string[] = [];

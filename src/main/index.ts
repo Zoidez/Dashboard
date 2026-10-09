@@ -17,10 +17,20 @@ import { FileHelper } from "./services/files.js";
 import { OptionsStore } from "./options.js";
 import { FeedService } from "./reports/feeds.js";
 import { feedCard, feedCardId, installCard, reviewText, type Decide } from "./cards/install.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { dirname } from "node:path";
+import { GeneratorGate, parseApprovals } from "./generator/cli-gate.js";
+import { buildHash, hostSuiteProblem } from "./generator/host-suite.js";
+import { GeneratorPipeline } from "./generator/pipeline.js";
+import { loadPromptDocs, type PromptDocs } from "./generator/prompt.js";
+import { ApprovalCanvas } from "./ui/canvas.js";
+import { installGenerated } from "./cards/install.js";
+import { streamsOf } from "../filehelper/win32.js";
+import type { GeneratorView } from "../shared/ui-state.js";
 import { LayoutStore } from "./layout.js";
 import { Shell } from "./ui/shell.js";
-import { parseApproval as parseCliApproval, verifyCli } from "./generator/cli-gate.js";
+import { verifyCli } from "./generator/cli-gate.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
 
@@ -68,16 +78,66 @@ const lastLink = new Map<string, number>();
 let shell: Shell | null = null;
 const layoutStore = new LayoutStore(join(paths.data, "layout.json"));
 
-/** The CLI gate's view of the installed generator build, for File > Options > Claude. */
-async function gateState(): Promise<{ ok: boolean; version?: string; reason?: string }> {
-  const approvalPath = join(paths.generator, "cli-approval.json");
-  let exePath = "";
-  try {
-    const a = parseCliApproval(readFileSync(approvalPath, "utf8"));
-    exePath = join(paths.vendor, "claude", `${a.version}-${a.sha256.slice(0, 12).toLowerCase()}`, "claude.exe");
-  } catch (e) { return { ok: false, reason: (e as NodeJS.ErrnoException).code === "ENOENT" ? "no CLI approval file: run the spike" : (e as Error).message }; }
-  const r = await verifyCli({ exePath, approvalPath });
-  return r.ok ? { ok: true, version: r.version } : { ok: false, reason: r.reason };
+// ---------- the generator (New card) ----------
+
+const approvalsList = join(paths.generator, "cli-approvals.json");
+const approvalsLegacy = join(paths.generator, "cli-approval.json");
+
+/**
+ * The CLI build in use (ARCHITECTURE.md: builds side by side in data/vendor/claude/<version>-<sha12>/).
+ * Options may name one; otherwise the newest approved build that is installed; otherwise the newest folder.
+ */
+function activeBuild(): string | null {
+  let folders: string[] = [];
+  try { folders = readdirSync(join(paths.vendor, "claude"), { withFileTypes: true }).filter((d) => d.isDirectory() && /^\d+\.\d+\.\d+-[0-9a-f]{12}$/i.test(d.name)).map((d) => d.name); } catch { return null; }
+  if (!folders.length) return null;
+  let records: Array<{ status: string; sha256: string; decidedAt: string }> = [];
+  for (const f of [approvalsList, approvalsLegacy]) { try { records = parseApprovals(readFileSync(f, "utf8")); break; } catch { /* next */ } }
+  const approved = records.filter((r) => r.status === "approved").sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
+  for (const r of approved) { const f = folders.find((x) => x.toLowerCase().endsWith(r.sha256.slice(0, 12).toLowerCase())); if (f) return f; }
+  return folders.sort().reverse()[0];
+}
+
+let build = activeBuild();
+const gateOpts = () => ({
+  exePath: join(paths.vendor, "claude", build ?? "none", "claude.exe"),
+  approvalPath: approvalsList, legacyApprovalPath: approvalsLegacy, buildFolder: build ?? undefined,
+});
+const gate = new GeneratorGate(gateOpts());
+const currentBuildHash = buildHash(distDir);
+const spikePath = join(app.getAppPath(), "spikes", "spike1-cli.ps1");
+let testing = false;
+let pipeline: GeneratorPipeline | null = null;
+let canvas: ApprovalCanvas | null = null;
+const readGen = (f: string) => readFileSync(join(distDir, "generator", f), "utf8");
+let promptDocs: PromptDocs | null = null;
+
+async function gateState(): Promise<{ ok: boolean; version?: string; reason?: string; code?: string }> {
+  const r = await verifyCli(gateOpts());
+  return r.ok ? { ok: true, version: r.version } : { ok: false, reason: r.reason, code: r.code };
+}
+
+function generatorView(): GeneratorView {
+  const p = pipeline?.current ?? { phase: "idle" as const };
+  const targets = host ? [
+    ...[...host.cards.values()].map((c) => ({ cardId: c.cardId, name: c.name })),
+    ...[...host.stopped.entries()].filter(([id]) => host!.startable(id)).map(([cardId, s]) => ({ cardId, name: s.name })),
+  ].filter((t) => !t.cardId.startsWith("feed-")).sort((a, b) => a.name.localeCompare(b.name)) : [];
+  return { ...p, build: build ?? undefined, testing, canTest: existsSync(spikePath), targets };
+}
+
+/** "Test the new CLI version": the host runs its own security test in a visible PowerShell window. */
+function testCli(): void {
+  if (testing || !existsSync(spikePath)) return;
+  const version = build?.split("-")[0];
+  const child = spawn("powershell.exe", ["-NoExit", "-ExecutionPolicy", "Bypass", "-File", spikePath, ...(version ? ["-Version", version] : [])], {
+    cwd: dirname(dirname(spikePath)), detached: true, stdio: "ignore", windowsHide: false,
+  });
+  testing = true;
+  audit.write("_host", "session-start", `CLI security test started for ${version ?? "the latest version"}`);
+  shell?.push();
+  child.once("exit", () => { testing = false; build = activeBuild(); gate.retarget(gateOpts()); void pipeline?.refreshGate().then(() => shell?.push()); });
+  child.unref();
 }
 
 function createWindow(): BrowserWindow {
@@ -193,23 +253,59 @@ app.whenReady().then(async () => {
     devTools,
   }, approvals, broker, audit);
 
+  canvas = new ApprovalCanvas({ parent: () => win, distDir, approvalsDir: paths.approvals, taskName: (t) => options.feed(t)?.name ?? t, devTools });
+  const cv = canvas;
+  pipeline = new GeneratorPipeline({
+    gate, checkGate: () => verifyCli(gateOpts()),
+    hostSuiteProblem: () => hostSuiteProblem(join(paths.generator, "host-suite.json"), currentBuildHash),
+    paths, distDir,
+    docs: () => (promptDocs ??= loadPromptDocs(join(distDir, "generator"))),
+    manifestSchema: () => JSON.parse(readGen("manifest.schema.json")) as object,
+    hostApiDts: () => readGen("host-api.d.ts"),
+    feedTaskIds: () => options.feeds.map((f) => f.taskId),
+    installedInfo: (id) => { const a = approvals.get(id); return a && !a.revoked ? { version: a.version, permissions: a.permissions, files: a.files } : null; },
+    smoke: (card) => host!.smoke(card),
+    streamsOf,
+    review: (r) => cv.review(r),
+    install: async (card, perms, kind) => {
+      await installGenerated(card, perms, kind, { cards: paths.cards, approvals: paths.approvals, config: paths.config }, (id) => host?.stop(id, "being updated", "stopped"));
+      await approvals.load(card.cardId);
+      host?.stopped.delete(card.cardId);
+      await host?.start(card.cardId);
+    },
+    audit,
+  });
+  const pl = pipeline;
+  pl.on("state", () => shell?.push());
+
   shell = new Shell({
     win: w, host: () => host, approvals, audit, options, feeds, layout: layoutStore, gate: gateState,
     distDir, reportsDir: paths.reports, devTools,
     setLoginItem: (open) => app.setLoginItemSettings({ openAtLogin: open, path: process.execPath }),
+    generator: {
+      view: generatorView,
+      start: (req) => {
+        const target = req.target === "new" ? { kind: "new" as const } : { kind: "update" as const, cardId: req.target };
+        pl.start({ text: req.text, target, preset: req.target === "new" ? req.preset : null }).catch((e: Error) => audit.write("_host", "denied", `generation refused: ${e.message}`));
+      },
+      stop: () => pl.stop(),
+      testCli,
+    },
   });
   shell.createTray(join(distDir, "assets", "icon.png"));
   if (options.general.startWithWindows) shell.applyLoginItem();
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w };
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate };
 
   await w.loadFile(join(distDir, "renderer", "index.html"));
   await feeds.start();
   await host.startAll();
+  if (existsSync(gateOpts().exePath)) gate.startWatching();
+  void pl.refreshGate();
   shell.push();
 });
 
-app.on("before-quit", () => { host?.stopAll("the Dashboard quit"); files.stop(); feeds.stop(); shell?.destroyTray(); });
+app.on("before-quit", () => { pipeline?.stop(); gate.abortAll("the Dashboard quit"); gate.stopWatching(); host?.stopAll("the Dashboard quit"); files.stop(); feeds.stop(); shell?.destroyTray(); });
 app.on("window-all-closed", () => app.quit());
 app.on("second-instance", () => shell?.showWindow());

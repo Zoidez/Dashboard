@@ -150,14 +150,28 @@ async function main(): Promise<void> {
     worker.postMessage({ k: "init", cardId, config });
   }
 
+  const report = (event: string, detail?: string) => fire("card.lifecycle", event, ...(detail === undefined ? [] : [detail.slice(0, 2000)]));
+  window.addEventListener("error", (e) => report("uncaught", String(e.message || e.error)));
+  window.addEventListener("unhandledrejection", (e) => report("uncaught", String((e.reason as Error)?.message ?? e.reason)));
+
   const el = document.getElementById("card")!;
+  let mod: { mount?: (el: HTMLElement, api: HostApi) => unknown; unmount?: () => unknown } = {};
+  if (!listeners.has("card:unmount")) listeners.set("card:unmount", new Set());
+  listeners.get("card:unmount")!.add(() => {
+    void (async () => {
+      try { await mod.unmount?.(); report("unmounted"); } catch (e) { report("unmount-failed", (e as Error)?.message ?? String(e)); }
+    })();
+  });
   try {
     const uiUrl = new URL("/ui.js", location.href).href;   // a variable, so the bundler leaves it alone
-    const mod = (await import(uiUrl)) as { mount?: (el: HTMLElement, api: HostApi) => unknown };
+    mod = (await import(uiUrl)) as typeof mod;
     if (typeof mod.mount !== "function") throw new Error("ui.js does not export mount(el, api)");
     await mod.mount(el, api);
+    report("mounted");
   } catch (e) {
-    ui.setStatus({ state: "error", message: `The card failed to start: ${(e as Error)?.message ?? String(e)}` });
+    const msg = (e as Error)?.message ?? String(e);
+    report("mount-failed", msg);
+    ui.setStatus({ state: "error", message: `The card failed to start: ${msg}` });
   }
 }
 

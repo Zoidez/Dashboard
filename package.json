@@ -14,7 +14,8 @@
     "test:unit": "node --import tsx --test \"test/unit/**/*.test.ts\"",
     "test:e2e": "npm run build && playwright test -c test/e2e/playwright.config.ts",
     "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
-    "test:race": "node --import tsx --test test/race/*.test.ts"
+    "test:race": "node --import tsx --test test/race/*.test.ts",
+    "test:host-suite": "node scripts/record-host-suite.mjs --instance=Build"
   },
   "dependencies": {
     "ajv": "8.20.0",

@@ -43,6 +43,6 @@ and why. If the request cannot be done within these rules, write no files and sa
 Then the generator rules from RULES.md ("Generator rules (sent with every request)", 1–9), verbatim.
 
 ## Open
-- Whether `--append-system-prompt` or `--system-prompt` (replacing Claude Code's default) works better under `--restricted`; to be checked in the next spike.
+- `--append-system-prompt` is used (decision 2026-10-09); spike v3.9 test T9 checks that it keeps the lockdown and takes effect. Whether `--system-prompt` (replacing Claude Code's default) would be better is still open.
 - Length budget: the reference files cost tokens on every run; measure on the first real generations.
 - Wording will be tuned from the first real generations; every change is recorded here.

@@ -22,7 +22,8 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 
 ## Do not touch
 - `Build\data\claude\` — the generator's CLI config and **login token**. Never read, copy, print or move anything in it (RULES.md, Binary and config 3).
-- `Build\data\generator\cli-approval.json` — written only by the spike.
+- `Build\data\generator\cli-approval.json` and `cli-approvals.json` — written only by the spike.
+- `Build\data\generator\host-suite.json` — written only by `npm run test:host-suite` after the suite passed.
 - `Build\data\vendor\claude\` — CLI builds, installed only by the spike; never replace or delete them.
 - `setup\setup-generator-account.ps1` — withdrawn; never run.
 - The user's Claude scheduled tasks — never delete or recreate them.
@@ -34,7 +35,9 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 - Watch feeds done (reports, feed service, safe Markdown, reference card, interim approval dialog).
 - Background workers done (worker.js as a Web Worker, ticks with watchdog).
 - React grid, Options, tray, start with Windows, hot-loading done.
-- **Next:** the generator pipeline (New card, validator, approval canvas), then the packaged Dashboard.exe.
+- Generator pipeline done (New card, runner, validator V0-V5, host-suite record, approval canvas, gate on the tested list). Tested with a fake CLI only.
+- **Waiting on the user:** spike v3.9 (gate requires harness 3.9), `npm run test:host-suite`, first real generation.
+- **Next:** packaged Dashboard.exe in `Build\app\`.
 
 ## Working in this repo
 - Use the project's Node: prepend `tools\node` to PATH (Node 24.21.0; the system Node 20 is too old for Electron 44).

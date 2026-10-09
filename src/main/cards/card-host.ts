@@ -16,7 +16,7 @@ import { app, ipcMain, MessageChannelMain, nativeTheme, WebContentsView, type Ba
 import { promises as fsp, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, posix } from "node:path";
 import type { AuditLog } from "../audit.js";
-import type { Broker, CardSession } from "../broker/broker.js";
+import type { Broker, CardSession, SmokeMode } from "../broker/broker.js";
 import { checkCardProcess, type ProcessRights } from "../security/process-check.js";
 import { ApprovalStore, CARD_ID_RE, hashCardFolder, isCardFilePath, sha256, type ApprovalRecord } from "./approvals.js";
 import { CARD_CSP, createCardSession } from "./card-session.js";
@@ -81,6 +81,7 @@ export class CardHost {
   private readonly starting = new Set<string>();
   private readonly sizes = new Map<string, { w: number; h: number }>();
   private dirWatcher: FSWatcher | null = null;
+  private readonly smokes = new Map<number, { hello: (frameUrl: string) => void }>();
   private rescanTimer: NodeJS.Timeout | null = null;
   private readonly hot = new Map<string, number>();
 
@@ -304,6 +305,8 @@ export class CardHost {
 
   /** The preload asks for its port. Only the main frame of a live, checked card view gets one, once. */
   private onHello(sender: WebContents, frameUrl: string): void {
+    const smoke = this.smokes.get(sender.id);
+    if (smoke) { smoke.hello(frameUrl); return; }
     const card = [...this.cards.values()].find((c) => !c.view.webContents.isDestroyed() && c.view.webContents.id === sender.id);
     if (!card || card.broker || card.stopping) return;
     if (!frameUrl.startsWith(`card://${card.cardId}/`)) return;
@@ -384,6 +387,114 @@ export class CardHost {
     if (!card?.tickPending || card.tickPending.seq !== seq) return;
     clearTimeout(card.tickPending.watchdog);
     card.tickPending = undefined;
+  }
+
+  /**
+   * VALIDATOR.md V5: runs a staged card once in the real card runtime with the broker in deny-all
+   * mode. The files are served from memory (the exact bytes the validator read). Returns the errors.
+   */
+  async smoke(card: { cardId: string; manifest: { permissions: SmokeMode["declared"]; worker?: boolean; configSchema?: Manifest["configSchema"] }; files: Record<string, Buffer> },
+    t: { mountMs?: number; settleMs?: number; unmountMs?: number } = {}): Promise<string[]> {
+    const errors: string[] = [];
+    const id = card.cardId;
+    const since = new Date().toISOString();
+    const config: Record<string, string | number | boolean> = {};
+    for (const [k, f] of Object.entries(card.manifest.configSchema?.properties ?? {})) {
+      if (typeof f.default === "string" || typeof f.default === "number" || typeof f.default === "boolean") config[k] = f.default;
+    }
+    const mode: SmokeMode = { declared: card.manifest.permissions, config, requests: [], statuses: [], lifecycle: [], storage: new Map() };
+    const worker = card.manifest.worker === true && !!card.files["worker.js"];
+    let ses: Session;
+    try { ses = await createCardSession(id, this.audit); } catch (e) { return [`the card could not be isolated: ${(e as Error).message}`]; }
+    const view = new WebContentsView({
+      webPreferences: {
+        session: ses, preload: this.opts.preloadPath, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInWorker: false,
+        webSecurity: true, webviewTag: false, backgroundThrottling: false, spellcheck: false, disableDialogs: true, devTools: false, navigateOnDragDrop: false,
+      },
+    });
+    view.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    view.setVisible(false);
+    view.setBounds({ x: 0, y: 0, width: 480, height: 360 });
+    this.opts.window.contentView.addChildView(view);
+    const wc = view.webContents;
+    let session: CardSession | null = null;
+    let pid = 0;
+    let checked: Promise<void> | null = null;
+    const check = () => {
+      if (!checked) checked = (async () => {
+        pid = wc.getOSProcessId();
+        const shared = pid === process.pid || pid === this.opts.dashboardPid() || [...this.cards.values()].some((c) => c.pid === pid);
+        if (!pid || shared) throw new Error("the card would share a process");
+        const r = checkCardProcess(pid);
+        if (!r.ok) throw new Error(`card process fails the OS rights check: ${r.reason}`);
+      })();
+      return checked;
+    };
+    ses.protocol.handle("card", async (req) => {
+      const url = new URL(req.url);
+      const nf = () => new Response("not found", { status: 404, headers: { "content-security-policy": CARD_CSP } });
+      const hdr = (type: string) => ({ "content-type": type, "content-security-policy": CARD_CSP, "x-content-type-options": "nosniff", "cache-control": "no-store" });
+      if (url.host !== id) return nf();
+      if (url.pathname === "/" || url.pathname === "/index.html") return new Response(indexHtml(nativeTheme.shouldUseDarkColors, worker), { headers: hdr("text/html; charset=utf-8") });
+      try { await check(); } catch (e) { errors.push((e as Error).message); return nf(); }
+      if (url.pathname === "/__host/runtime.js") return new Response(new Uint8Array(this.runtimeJs), { headers: hdr(MIME[".js"]) });
+      if (url.pathname === "/__host/worker-runtime.js") return worker ? new Response(new Uint8Array(this.workerRuntimeJs), { headers: hdr(MIME[".js"]) }) : nf();
+      const rel = decodeURIComponent(url.pathname.slice(1));
+      if (!isCardFilePath(rel) || rel === "manifest.json" || rel === "DEVLOG.md" || !card.files[rel]) return nf();
+      return new Response(new Uint8Array(card.files[rel]), { headers: hdr(MIME[rel.slice(rel.lastIndexOf("."))] ?? "application/octet-stream") });
+    });
+    const lifecycleSeen = (events: string[], ms: number) => new Promise<boolean>((res) => {
+      const end = Date.now() + ms;
+      const poll = () => { if (mode.lifecycle.some((l) => events.includes(l.event))) res(true); else if (Date.now() > end || wc.isDestroyed()) res(false); else setTimeout(poll, 50); };
+      poll();
+    });
+    let navigated = false;
+    wc.on("did-start-navigation", (d) => { if (d.isMainFrame && !d.isSameDocument && session) navigated = true; });
+    let crashed = "";
+    wc.on("render-process-gone", (_e, d) => { crashed = d.reason; });
+    this.smokes.set(wc.id, {
+      hello: (frameUrl) => {
+        if (session || !frameUrl.startsWith(`card://${id}/`)) return;
+        void check().then(() => {
+          const { port1, port2 } = new MessageChannelMain();
+          const s = this.broker.openSession(id, "smoke", port1, mode);
+          session = s;
+          port1.on("message", (e) => { void this.broker.handle(s, e.data); });
+          port1.start();
+          wc.postMessage("card:port", null, [port2]);
+        }, () => undefined);
+      },
+    });
+    try {
+      try { await wc.loadURL(`card://${id}/`); } catch (e) { errors.push(`the card did not load: ${(e as Error).message}`); }
+      const mounted = await lifecycleSeen(["mounted", "mount-failed"], t.mountMs ?? 10_000);
+      if (!mounted) errors.push(`mount() did not finish within ${Math.round((t.mountMs ?? 10_000) / 1000)} s`);
+      await new Promise((r) => setTimeout(r, t.settleMs ?? 1500));
+      if (session) this.broker.emit(session, "card:unmount", null);
+      if (mounted && !(await lifecycleSeen(["unmounted", "unmount-failed"], t.unmountMs ?? 3000))) errors.push("unmount() did not finish");
+      for (const l of mode.lifecycle) {
+        if (l.event === "mount-failed") errors.push(`mount() threw: ${l.detail}`);
+        if (l.event === "unmount-failed") errors.push(`unmount() threw: ${l.detail}`);
+        if (l.event === "uncaught") errors.push(`uncaught error: ${l.detail}`);
+      }
+      if (!mode.statuses.length) errors.push("the card never reported its state (api.ui.setStatus, generator rule 7)");
+      for (const r of mode.requests) if (!r.covered) errors.push(`it tried something its manifest does not declare: ${r.what}`);
+      const blocked = this.audit.entries({ cardId: id }).filter((e) => e.at >= since && (e.kind === "blocked-request" || e.kind === "browser-permission"));
+      for (const b of blocked.slice(0, 8)) errors.push(`blocked attempt: ${b.detail}`);
+      if (blocked.length > 8) errors.push(`... and ${blocked.length - 8} more blocked attempts`);
+      if (navigated) errors.push("it tried to navigate the card view");
+      if (crashed) errors.push(`its process ended (${crashed})`);
+      const m = pid ? app.getAppMetrics().find((x) => x.pid === pid) : undefined;
+      const limit = this.opts.limits?.memoryBytes ?? 512 * 1024 * 1024;
+      if (m && (m.memory?.workingSetSize ?? 0) * 1024 > limit) errors.push(`it used more than ${Math.round(limit / 1048576)} MB of memory`);
+    } finally {
+      this.smokes.delete(wc.id);
+      if (session) this.broker.endSession(session, "smoke test finished");
+      try { this.opts.window.contentView.removeChildView(view); } catch { /* window gone */ }
+      try { if (!wc.isDestroyed()) wc.close({ waitForBeforeUnload: false }); } catch { /* closed */ }
+      try { ses.protocol.unhandle("card"); } catch { /* gone */ }
+    }
+    return [...new Set(errors)];
   }
 
   /** Revoke: removes the approval (written to disk first in memory), which also stops the card. */

@@ -5,7 +5,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { CardAction, CardFrame, DashboardState, FrameRect, LayoutUpdate } from "../shared/ui-state.js";
+import type { CardAction, CardFrame, DashboardState, FrameRect, LayoutUpdate, NewCardRequest } from "../shared/ui-state.js";
+import { NewCard } from "./new-card.js";
 
 declare global {
   interface Window {
@@ -15,6 +16,9 @@ declare global {
       saveLayout(u: LayoutUpdate): void;
       cardAction(cardId: string, action: CardAction): void;
       openOptions(): void;
+      newCardStart(r: NewCardRequest): void;
+      newCardStop(): void;
+      newCardTestCli(): void;
     };
   }
 }
@@ -27,7 +31,7 @@ const STATE_WORDS: Record<string, string> = {
 };
 
 function App() {
-  const [state, setState] = useState<DashboardState>({ frames: [], summary: "" });
+  const [state, setState] = useState<DashboardState>({ frames: [], summary: "", generator: { phase: "idle", testing: false, canTest: false, targets: [] } });
   const [frames, setFrames] = useState<CardFrame[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);              // dragging or resizing: views hidden meanwhile
@@ -117,8 +121,13 @@ function App() {
         <button className="link" onClick={() => host.openOptions()}>Options…</button>
       </header>
       <main id="grid" ref={scroller}>
-        {frames.length === 0 && <p className="empty">No cards yet. Cards &gt; Install watch-feed cards… adds the three feeds.</p>}
         <div className="grid">
+          <section className="frame newcard-frame" data-card="new" style={{ gridColumn: "span 4", gridRow: "span 5" }}>
+            <div className="bar"><span className="name">New</span><span className="state">{state.generator.gate?.ok ? `Claude Code ${state.generator.gate.version}` : ""}</span></div>
+            <div className="body newcard-body">
+              <NewCard g={state.generator} start={(r) => host.newCardStart(r)} stop={() => host.newCardStop()} testCli={() => host.newCardTestCli()} />
+            </div>
+          </section>
           {frames.map((f) => (
             <section
               key={f.cardId}

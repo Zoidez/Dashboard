@@ -43,3 +43,18 @@ button.danger { color: var(--err); }
 .frame .reason { padding: 10px; margin: 0; color: var(--muted); }
 /* The handle sits in the strip below the body: the card view covers the body itself. */
 .frame .resize { position: absolute; right: 0; bottom: 0; width: 28px; height: 8px; cursor: nwse-resize; background: repeating-linear-gradient(90deg, var(--border) 0 2px, transparent 2px 4px); }
+
+/* The New card (host-drawn, not a card view) */
+.newcard-frame .bar { cursor: default; }
+.newcard-body { overflow: auto; }
+.newcard { display: flex; flex-direction: column; gap: 8px; padding: 10px; height: 100%; }
+.newcard .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.newcard select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
+.newcard textarea { flex: 1; min-height: 8.5em; resize: none; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+.newcard textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.newcard .progress { color: var(--muted); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.newcard .errors { margin: 0; max-height: 40%; overflow: auto; white-space: pre-wrap; font: 12px/1.4 Consolas, "Cascadia Mono", monospace; color: var(--err); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+.newcard .gate-state { margin: 0; }
+.newcard .hint { color: var(--muted); font-size: 12px; margin: 0; }
+button.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .55; cursor: default; }

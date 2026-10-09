@@ -12,7 +12,7 @@ import { display } from "../cards/permission-lines.js";
 import { LayoutStore, clampSize } from "../layout.js";
 import type { OptionsStore } from "../options.js";
 import type { FeedService } from "../reports/feeds.js";
-import type { CardAction, CardFrame, DashboardState, OptionsPatch, OptionsState } from "../../shared/ui-state.js";
+import type { CardAction, CardFrame, DashboardState, GeneratorView, NewCardRequest, OptionsPatch, OptionsState } from "../../shared/ui-state.js";
 
 export interface ShellDeps {
   win: BrowserWindow;
@@ -22,12 +22,19 @@ export interface ShellDeps {
   options: OptionsStore;
   feeds: FeedService;
   layout: LayoutStore;
-  gate: () => Promise<{ ok: boolean; version?: string; reason?: string }>;
+  gate: () => Promise<{ ok: boolean; version?: string; reason?: string; code?: string }>;
   distDir: string;
   reportsDir: string;
   devTools: boolean;
   /** Writes the Windows sign-in entry; only called for the packaged app. */
   setLoginItem: (open: boolean) => void;
+  /** The New card: state, and what its buttons do. */
+  generator: {
+    view: () => GeneratorView;
+    start: (req: NewCardRequest) => void;
+    stop: () => void;
+    testCli: () => void;
+  };
 }
 
 const ACTIONS = new Set<CardAction>(["stop", "start", "revoke"]);
@@ -51,6 +58,15 @@ export class Shell {
     });
     ipcMain.on("dashboard:card-action", (e, cardId, action) => { if (fromGrid(e)) void this.cardAction(cardId, action, w); });
     ipcMain.on("dashboard:open-options", (e) => { if (fromGrid(e)) this.openOptions(); });
+    // Host invariant 1: a generation starts only from the text typed into the New card, in the grid window.
+    ipcMain.on("new:start", (e, req) => {
+      if (!fromGrid(e) || typeof req !== "object" || req === null) return;
+      const r = req as Record<string, unknown>;
+      if (typeof r.text !== "string" || r.text.length > 20_000 || typeof r.target !== "string" || (r.preset !== null && r.preset !== "watch-feed")) return;
+      d.generator.start({ text: r.text, target: r.target, preset: r.preset });
+    });
+    ipcMain.on("new:stop", (e) => { if (fromGrid(e)) d.generator.stop(); });
+    ipcMain.on("new:test-cli", (e) => { if (fromGrid(e)) d.generator.testCli(); });
 
     const fromOptions = (e: IpcMainInvokeEvent) => !!this.optionsWin && e.sender === this.optionsWin.webContents;
     ipcMain.handle("options:get", async (e) => (fromOptions(e) ? this.optionsState() : null));
@@ -87,7 +103,7 @@ export class Shell {
       ];
       const frames = this.d.layout.arrange(items, (id) => clampSize(host.defaultSize(id)));
       const running = host.cards.size;
-      const state: DashboardState = { frames, summary: `${running} card${running === 1 ? "" : "s"} running` };
+      const state: DashboardState = { frames, summary: `${running} card${running === 1 ? "" : "s"} running`, generator: this.d.generator.view() };
       this.d.win.webContents.send("dashboard:state", state);
       this.optionsWin?.webContents.send("options:changed");
       this.updateTray();

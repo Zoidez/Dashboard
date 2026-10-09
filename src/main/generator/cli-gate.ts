@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, promises as fsp, watch, type FSWatcher } from "node:fs";
 import { EventEmitter } from "node:events";
 
-export const MIN_HARNESS = "3.8";
+export const MIN_HARNESS = "3.9";
 
 export interface CliApproval {
   schema: 1;
@@ -33,13 +33,21 @@ export interface CliApproval {
   missing: string[];
 }
 
+/** Why a build cannot run; the New card picks its state from this (ARCHITECTURE.md, "Claude card: CLI test states"). */
+export type GateCode = "no-list" | "unreadable" | "untested" | "incomplete" | "blocked" | "old-harness" | "hash-mismatch" | "binary-unreadable" | "version-failed" | "version-mismatch" | "changed-during-check";
+
 export type GateResult =
   | { ok: true; version: string; sha256: string }
-  | { ok: false; reason: string };
+  | { ok: false; code: GateCode; reason: string; record?: CliApproval };
 
 export interface GateOptions {
   exePath: string;        // Build/data/vendor/claude/<version>-<sha12>/claude.exe
-  approvalPath: string;   // Build/data/generator/cli-approval.json
+  /** The tested list Build/data/generator/cli-approvals.json (schema 2), or a single record (schema 1, older spikes). */
+  approvalPath: string;
+  /** Tried when approvalPath does not exist: the single record older spikes wrote. */
+  legacyApprovalPath?: string;
+  /** The build's folder name "<version>-<sha12>", to tell "untested" from "damaged or replaced". */
+  buildFolder?: string;
   versionTimeoutMs?: number;
   /** Environment for `--version`; built from scratch, never inherited. */
   baseEnv?: NodeJS.ProcessEnv;
@@ -70,6 +78,18 @@ export function parseApproval(text: string): CliApproval {
   return a as CliApproval;
 }
 
+/** The tested list: schema 2 { builds: [...] }, or a single schema-1 record (older spikes). */
+export function parseApprovals(text: string): CliApproval[] {
+  let j: unknown;
+  try { j = JSON.parse(text.replace(/^\uFEFF/, "")); } catch { throw new Error("the tested list is not valid JSON"); }
+  const o = j as { schema?: unknown; builds?: unknown };
+  if (o && typeof o === "object" && o.schema === 2) {
+    if (!Array.isArray(o.builds)) throw new Error("the tested list has no builds");
+    return o.builds.map((b) => parseApproval(JSON.stringify(b)));
+  }
+  return [parseApproval(text)];
+}
+
 export async function sha256File(path: string): Promise<string> {
   const h = createHash("sha256");
   await new Promise<void>((resolve, reject) => {
@@ -95,34 +115,46 @@ function minimalEnv(): NodeJS.ProcessEnv {
   return { SystemRoot: sys, windir: sys, PATH: `${sys}\\system32;${sys}`, DISABLE_UPDATES: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
 }
 
-/** One full check. Never throws; returns the reason in plain words. */
+/** One full check. Never throws; returns a reason code and the reason in plain words. */
 export async function verifyCli(opts: GateOptions): Promise<GateResult> {
-  let approval: CliApproval;
-  try { approval = parseApproval(await fsp.readFile(opts.approvalPath, "utf8")); }
-  catch (e) {
-    const msg = (e as NodeJS.ErrnoException).code === "ENOENT" ? "no CLI approval file: run the spike on this CLI version" : (e as Error).message;
-    return { ok: false, reason: msg };
+  let list: CliApproval[];
+  try {
+    let text: string;
+    try { text = await fsp.readFile(opts.approvalPath, "utf8"); }
+    catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT" || !opts.legacyApprovalPath) throw e;
+      text = await fsp.readFile(opts.legacyApprovalPath, "utf8");
+    }
+    list = parseApprovals(text);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { ok: false, code: "no-list", reason: "no CLI approval file: run the spike on this CLI version" };
+    return { ok: false, code: "unreadable", reason: (e as Error).message };
+  }
+  // The binary is identified by its hash first; an untested binary is never started, not even for --version.
+  let sha: string;
+  try { sha = (await sha256File(opts.exePath)).toLowerCase(); } catch (e) { return { ok: false, code: "binary-unreadable", reason: `cannot read the CLI binary: ${(e as Error).message}` }; }
+  const approval = list.find((r) => r.sha256.toLowerCase() === sha);
+  if (!approval) {
+    const folderVersion = /^(\d+\.\d+\.\d+)-/.exec(opts.buildFolder ?? "")?.[1];
+    const sameVersion = folderVersion ? list.find((r) => r.version === folderVersion) : undefined;
+    if (sameVersion) return { ok: false, code: "hash-mismatch", reason: `the CLI file does not match the tested build of ${sameVersion.version}; it may be damaged or replaced`, record: sameVersion };
+    return { ok: false, code: "untested", reason: `the installed CLI binary (sha256 ${sha.slice(0, 12)}...) is not on the tested list: it is not the build the spike approved` };
   }
   if (approval.status !== "approved") {
-    return { ok: false, reason: `CLI ${approval.version} is ${approval.status} by the spike (failed: ${approval.failed.length}, not yet passed: ${approval.missing.length})` };
+    return { ok: false, code: approval.status, reason: `CLI ${approval.version} is ${approval.status} by the spike (failed: ${approval.failed.length}, not yet passed: ${approval.missing.length})`, record: approval };
   }
   if (compareVersions(approval.harness, MIN_HARNESS) < 0) {
-    return { ok: false, reason: `approval comes from spike harness ${approval.harness}; at least ${MIN_HARNESS} is required` };
-  }
-  let sha: string;
-  try { sha = await sha256File(opts.exePath); } catch (e) { return { ok: false, reason: `cannot read the CLI binary: ${(e as Error).message}` }; }
-  if (sha.toLowerCase() !== approval.sha256.toLowerCase()) {
-    return { ok: false, reason: `the installed CLI binary (sha256 ${sha.slice(0, 12)}...) is not the build the spike approved (${approval.sha256.slice(0, 12)}...)` };
+    return { ok: false, code: "old-harness", reason: `approval comes from spike harness ${approval.harness}; at least ${MIN_HARNESS} is required: run the spike again`, record: approval };
   }
   let version: string;
   try { version = await readCliVersion(opts.exePath, opts.baseEnv ?? minimalEnv(), opts.versionTimeoutMs ?? 15000); }
-  catch (e) { return { ok: false, reason: (e as Error).message }; }
+  catch (e) { return { ok: false, code: "version-failed", reason: (e as Error).message, record: approval }; }
   if (version !== approval.version) {
-    return { ok: false, reason: `the CLI reports version ${version}; the spike approved ${approval.version}` };
+    return { ok: false, code: "version-mismatch", reason: `the CLI reports version ${version}; the spike approved ${approval.version}`, record: approval };
   }
   // Hash again: the binary must not have changed while --version ran.
-  try { if ((await sha256File(opts.exePath)).toLowerCase() !== approval.sha256.toLowerCase()) return { ok: false, reason: "the CLI binary changed during the check" }; }
-  catch (e) { return { ok: false, reason: `cannot read the CLI binary: ${(e as Error).message}` }; }
+  try { if ((await sha256File(opts.exePath)).toLowerCase() !== sha) return { ok: false, code: "changed-during-check", reason: "the CLI binary changed during the check" }; }
+  catch (e) { return { ok: false, code: "binary-unreadable", reason: `cannot read the CLI binary: ${(e as Error).message}` }; }
   return { ok: true, version, sha256: sha };
 }
 
@@ -138,7 +170,16 @@ export class GeneratorGate extends EventEmitter {
   private recheckTimer: NodeJS.Timeout | null = null;
   private _state: { enabled: boolean; reason: string; version?: string } = { enabled: false, reason: "not checked yet" };
 
-  constructor(private readonly opts: GateOptions) { super(); }
+  constructor(private opts: GateOptions) { super(); }
+
+  /** Points the gate at another build (e.g. after "Switch to CLI x.y.z"); every running generation stops. */
+  retarget(opts: GateOptions): void {
+    this.abortAll("the CLI build changed");
+    const watching = this.watchers.length > 0;
+    this.stopWatching();
+    this.opts = opts;
+    if (watching) this.startWatching();
+  }
 
   get state() { return { ...this._state }; }
   get runningCount() { return this.children.size; }
@@ -166,6 +207,13 @@ export class GeneratorGate extends EventEmitter {
     child.once("exit", forget);
     child.once("error", forget);
     return child;
+  }
+
+  /** Kills one generation (whole process tree), e.g. when the user presses Stop or a run times out. */
+  kill(child: ChildProcess): void {
+    try { child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy(); } catch { /* already closed */ }
+    killTree(child);
+    this.children.delete(child);
   }
 
   /** Kills every CLI process this gate started (whole tree), closes their pipes, disables the gate. */

@@ -10,4 +10,8 @@ contextBridge.exposeInMainWorld("dashboardHost", {
   saveLayout(update: unknown): void { ipcRenderer.send("dashboard:layout", update); },
   cardAction(cardId: unknown, action: unknown): void { ipcRenderer.send("dashboard:card-action", cardId, action); },
   openOptions(): void { ipcRenderer.send("dashboard:open-options"); },
+  // The New card: the only place a generation can start (host invariant 1).
+  newCardStart(req: unknown): void { ipcRenderer.send("new:start", req); },
+  newCardStop(): void { ipcRenderer.send("new:stop"); },
+  newCardTestCli(): void { ipcRenderer.send("new:test-cli"); },
 });

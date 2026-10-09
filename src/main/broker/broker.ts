@@ -33,6 +33,16 @@ export interface Closeable { close(): void }
 
 export interface Grant { permission: Permission; grantedAt: string }
 
+/** A V5 smoke-test session (VALIDATOR.md): every capability is refused and recorded; nothing touches the host's state. */
+export interface SmokeMode {
+  declared: Permission[];
+  config: Record<string, string | number | boolean>;
+  requests: Array<{ what: string; covered: boolean }>;
+  statuses: unknown[];
+  lifecycle: Array<{ event: string; detail?: string }>;
+  storage: Map<string, unknown>;
+}
+
 export class CardSession {
   readonly id = randomUUID();
   readonly startedAt = new Date().toISOString();
@@ -48,7 +58,7 @@ export class CardSession {
   private tokens: number;
   private last = Date.now();
 
-  constructor(readonly cardId: string, readonly versionHash: string, readonly port: PortLike, private readonly rate: { perSecond: number; burst: number }) {
+  constructor(readonly cardId: string, readonly versionHash: string, readonly port: PortLike, private readonly rate: { perSecond: number; burst: number }, readonly smoke: SmokeMode | null = null) {
     this.tokens = rate.burst;
   }
 
@@ -90,6 +100,8 @@ export interface HostServices {
     call(op: string, args: unknown[], ctx: { instanceRoot: string; scope: { path: string; recursive: boolean } }): Promise<unknown>;
     watch(path: string, ctx: { instanceRoot: string; scope: { path: string; recursive: boolean } }, onEvent: (ev: unknown) => void): Promise<() => void>;
   };
+  /** The card runtime reports mount/unmount results and uncaught errors. */
+  lifecycle?(cardId: string, event: string, detail?: string): void;
   /** worker.js finished the tick with this sequence number. */
   tickDone(cardId: string, seq: number): void;
   /** The broker asks the host to stop a card (repeated denials, rate abuse, revoked approval). */
@@ -139,8 +151,8 @@ export class Broker {
   }
 
   /** Starts a session for a card the host has just loaded. The grant table starts empty. */
-  openSession(cardId: string, versionHash: string, port: PortLike): CardSession {
-    const s = new CardSession(cardId, versionHash, port, this.rate);
+  openSession(cardId: string, versionHash: string, port: PortLike, smoke: SmokeMode | null = null): CardSession {
+    const s = new CardSession(cardId, versionHash, port, this.rate, smoke);
     this.sessions.set(s.id, s);
     this.audit.write(cardId, "session-start", `session ${s.id}`);
     return s;
@@ -240,6 +252,11 @@ export class Broker {
 
   /** Lazy grant: finds the approved permission that covers the request and records the grant. */
   private grant(s: CardSession, req: CapabilityRequest, what: string): Permission {
+    if (s.smoke) {
+      // Deny-all: record whether the card's own manifest would cover it, then refuse.
+      s.smoke.requests.push({ what, covered: findCovering(s.smoke.declared, req, this.opts.resolvePath) >= 0 });
+      throw new HostError("PermissionDenied", `not allowed during the validation smoke test: ${what}`);
+    }
     const rec = this.approval(s);
     const idx = findCovering(rec.permissions, req, this.opts.resolvePath);
     if (idx < 0) {
@@ -256,8 +273,23 @@ export class Broker {
 
   private async dispatch(s: CardSession, m: string, a: unknown[]): Promise<unknown> {
     const ui = this.services.ui;
+    if (s.smoke) {
+      // The smoke test never reaches the host's UI, storage or the live card of the same id.
+      const sm = s.smoke;
+      switch (m) {
+        case "card.config": return sm.config;
+        case "card.lifecycle": sm.lifecycle.push({ event: str(a[0], "event", 40), detail: a[1] === undefined ? undefined : str(a[1], "detail", 2000) }); return null;
+        case "ui.setStatus": sm.statuses.push(a[0]); return null;
+        case "ui.notify": case "ui.setAccent": case "card.tickDone": return null;
+        case "ui.confirm": return false;
+        case "storage.get": return sm.storage.get(str(a[0], "key", 200));
+        case "storage.set": sm.storage.set(str(a[0], "key", 200), a[1]); return null;
+        case "storage.remove": sm.storage.delete(str(a[0], "key", 200)); return null;
+      }
+    }
     switch (m) {
       case "card.config": return this.services.config(s.cardId);
+      case "card.lifecycle": this.services.lifecycle?.(s.cardId, str(a[0], "event", 40), a[1] === undefined ? undefined : str(a[1], "detail", 2000)); return null;
       case "card.tickDone": this.services.tickDone(s.cardId, typeof a[0] === "number" ? a[0] : -1); return null;
 
       case "ui.setStatus": {
