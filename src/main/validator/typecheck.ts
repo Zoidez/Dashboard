@@ -5,8 +5,15 @@
  * members (api.ffi), wrong argument types and misuse fail.
  */
 import ts from "typescript";
+import { readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 
-export interface TypecheckInput { files: Record<string, string>; hostApiDts: string }
+export interface TypecheckInput {
+  files: Record<string, string>;
+  hostApiDts: string;
+  /** Folder with TypeScript's lib.*.d.ts files saved as .txt (the packaged app strips .d.ts); default: TypeScript's own. */
+  libDir?: string;
+}
 
 const LIFECYCLE: Record<string, string[]> = {
   "ui.js": ["mount", "unmount"],
@@ -62,12 +69,18 @@ export function typecheck(input: TypecheckInput): string[] {
     lib: ["lib.es2023.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"], types: [], skipLibCheck: true,
   };
   const defaultHost = ts.createCompilerHost(options);
+  const LIB = "/tslib";
+  const libText = (f: string): string | undefined => {
+    if (!input.libDir || !norm(f).startsWith(LIB + "/")) return undefined;
+    try { return readFileSync(join(input.libDir, basename(f) + ".txt"), "utf8"); } catch { return undefined; }
+  };
   const host: ts.CompilerHost = {
     ...defaultHost,
-    fileExists: (f) => sources.has(norm(f)) || defaultHost.fileExists(f),
-    readFile: (f) => sources.get(norm(f)) ?? defaultHost.readFile(f),
+    ...(input.libDir ? { getDefaultLibLocation: () => LIB, getDefaultLibFileName: (o: ts.CompilerOptions) => `${LIB}/${ts.getDefaultLibFileName(o)}` } : {}),
+    fileExists: (f) => sources.has(norm(f)) || libText(f) !== undefined || defaultHost.fileExists(f),
+    readFile: (f) => sources.get(norm(f)) ?? libText(f) ?? defaultHost.readFile(f),
     getSourceFile: (f, lang) => {
-      const text = sources.get(norm(f));
+      const text = sources.get(norm(f)) ?? libText(f);
       return text !== undefined ? ts.createSourceFile(f, text, lang, true) : defaultHost.getSourceFile(f, lang);
     },
     writeFile: () => undefined,

@@ -50,6 +50,7 @@ export interface PipelineDeps {
   docs: () => PromptDocs;
   manifestSchema: () => object;
   hostApiDts: () => string;
+  tsLibDir?: string;
   feedTaskIds: () => string[];
   installedInfo: (cardId: string) => { version: string; permissions: Permission[]; files: Record<string, string> } | null;
   smoke: (card: LoadedCard) => Promise<string[]>;
@@ -174,7 +175,7 @@ export class GeneratorPipeline extends EventEmitter {
         this.set({ phase: "validating", message: attempt === 0 ? "validating" : `validating (retry ${attempt} of ${MAX_RETRIES})` });
         const v = await validate({
           dir: work, cardId, instanceRoot: this.d.paths.root, installedVersion: installed?.version, feedTaskIds: this.d.feedTaskIds(),
-          manifestSchema: this.d.manifestSchema(), hostApiDts: this.d.hostApiDts(), hostSuiteProblem: this.d.hostSuiteProblem(), smoke: this.d.smoke,
+          manifestSchema: this.d.manifestSchema(), hostApiDts: this.d.hostApiDts(), tsLibDir: this.d.tsLibDir, hostSuiteProblem: this.d.hostSuiteProblem(), smoke: this.d.smoke,
         }, this.d.streamsOf);
         if (signal.aborted) return this.set({ phase: "stopped", message: "stopped by you" });
         if (v.ok) return await this.approveAndInstall(v.card, kind, installed);

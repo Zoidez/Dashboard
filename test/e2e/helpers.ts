@@ -56,8 +56,13 @@ export function addCard(instance: string, spec: CardSpec): void {
   }, null, 2));
 }
 
+/** Launches the app on a throwaway instance: the packaged exe if DASH_EXE is set, otherwise the dev build. */
 export async function launch(instance: string): Promise<ElectronApplication> {
-  return electron.launch({ args: [REPO, `--instance=${instance}`], cwd: REPO, timeout: 30_000 });
+  const exe = process.env.DASH_EXE;
+  // Tests never touch Windows' sign-in programs: the app honours this switch (it can only disable the feature).
+  const env = { ...process.env, DASHBOARD_NO_LOGIN_ITEM: "1" } as Record<string, string>;
+  if (exe) return electron.launch({ executablePath: exe, args: [`--instance=${instance}`], env, timeout: 30_000 });
+  return electron.launch({ args: [REPO, `--instance=${instance}`], cwd: REPO, env, timeout: 30_000 });
 }
 
 /** The card's own storage, where fixture cards write their results. */

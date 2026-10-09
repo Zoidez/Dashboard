@@ -1,0 +1,35 @@
+{
+  "appId": "local.dashboard",
+  "productName": "Dashboard",
+  "executableName": "Dashboard",
+  "directories": {
+    "output": "pack",
+    "buildResources": "pack-resources"
+  },
+  "files": [
+    "dist/**",
+    "package.json"
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/koffi/**"
+  ],
+  "extraResources": [
+    {
+      "from": "spikes/spike1-cli.ps1",
+      "to": "spikes/spike1-cli.ps1"
+    }
+  ],
+  "npmRebuild": false,
+  "win": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "pack-resources/icon.png"
+  }
+}

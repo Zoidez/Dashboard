@@ -105,7 +105,9 @@ const gateOpts = () => ({
 });
 const gate = new GeneratorGate(gateOpts());
 const currentBuildHash = buildHash(distDir);
-const spikePath = join(app.getAppPath(), "spikes", "spike1-cli.ps1");
+// The security test: shipped beside the packaged app (resources/spikes), or from the project folder in a dev run.
+const spikePath = app.isPackaged ? join(process.resourcesPath, "spikes", "spike1-cli.ps1") : join(app.getAppPath(), "spikes", "spike1-cli.ps1");
+const spikeNeedsBuildArg = app.isPackaged || resolve(paths.root).toLowerCase() !== resolve(app.getAppPath(), "Build").toLowerCase();
 let testing = false;
 let pipeline: GeneratorPipeline | null = null;
 let canvas: ApprovalCanvas | null = null;
@@ -130,9 +132,8 @@ function generatorView(): GeneratorView {
 function testCli(): void {
   if (testing || !existsSync(spikePath)) return;
   const version = build?.split("-")[0];
-  const child = spawn("powershell.exe", ["-NoExit", "-ExecutionPolicy", "Bypass", "-File", spikePath, ...(version ? ["-Version", version] : [])], {
-    cwd: dirname(dirname(spikePath)), detached: true, stdio: "ignore", windowsHide: false,
-  });
+  const args = ["-NoExit", "-ExecutionPolicy", "Bypass", "-File", spikePath, ...(version ? ["-Version", version] : []), ...(spikeNeedsBuildArg ? ["-Build", paths.root] : [])];
+  const child = spawn("powershell.exe", args, { cwd: dirname(spikePath), detached: true, stdio: "ignore", windowsHide: false });
   testing = true;
   audit.write("_host", "session-start", `CLI security test started for ${version ?? "the latest version"}`);
   shell?.push();
@@ -261,7 +262,8 @@ app.whenReady().then(async () => {
     paths, distDir,
     docs: () => (promptDocs ??= loadPromptDocs(join(distDir, "generator"))),
     manifestSchema: () => JSON.parse(readGen("manifest.schema.json")) as object,
-    hostApiDts: () => readGen("host-api.d.ts"),
+    hostApiDts: () => readGen("host-api.d.ts.txt"),
+    tsLibDir: join(distDir, "ts-lib"),
     feedTaskIds: () => options.feeds.map((f) => f.taskId),
     installedInfo: (id) => { const a = approvals.get(id); return a && !a.revoked ? { version: a.version, permissions: a.permissions, files: a.files } : null; },
     smoke: (card) => host!.smoke(card),

@@ -19,3 +19,8 @@ tools/_x/
 # Test output
 test-results/
 playwright-report/
+
+# Packaging output (the portable app is copied into Build/app/)
+pack/
+pack-resources/
+Build/Dashboard.lnk

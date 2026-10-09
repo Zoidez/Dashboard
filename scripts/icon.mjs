@@ -15,7 +15,7 @@ const chunk = (type, data) => {
 
 export function writeIcon(file, size = 32) {
   const px = Buffer.alloc(size * (size * 4 + 1));
-  const r = 6, pad = 5, gap = 3, tile = (size - 2 * pad - gap) / 2;
+  const r = Math.round(size * 0.19), pad = Math.round(size * 0.16), gap = Math.max(1, Math.round(size * 0.09)), tile = (size - 2 * pad - gap) / 2;
   for (let y = 0; y < size; y++) {
     px[y * (size * 4 + 1)] = 0;                                   // filter: none
     for (let x = 0; x < size; x++) {

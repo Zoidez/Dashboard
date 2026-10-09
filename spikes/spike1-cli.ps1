@@ -114,7 +114,8 @@ param(
     [string]$Version,
     [switch]$NoProcmon,
     [switch]$SkipLogin,
-    [string]$AnalyzeOnly        # path of an earlier results folder: re-run only the Process Monitor analysis on its procmon.csv
+    [string]$AnalyzeOnly,       # path of an earlier results folder: re-run only the Process Monitor analysis on its procmon.csv
+    [string]$Build              # the instance folder; given by the packaged Dashboard (results then go to <Build>\data\spike\)
 )
 
 Set-StrictMode -Version 2
@@ -172,7 +173,10 @@ $RequiredChecks = @(
 $RefusalPattern  = "permission|denied|not allowed|outside (of )?(the )?(allowed|working|project)|working director|restricted|blocked"
 
 $root      = Split-Path -Parent $PSScriptRoot
-$build     = Join-Path $root "Build"
+$build     = $(if ($Build) { (Resolve-Path -LiteralPath $Build).Path } else { Join-Path $root "Build" })
+# From the project folder, results stay beside the spike; from the packaged Dashboard (which a build may
+# replace), they go into the instance's data folder, which builds never touch.
+$spikeHome = $(if ($Build) { Join-Path $build "data\spike" } else { $PSScriptRoot })
 $vendorRoot = Join-Path $build "data\vendor\claude"         # state, not build output: builds never touch data\
 $vendor    = $null                                          # data\vendor\claude\<version>-<sha12>, set once the hash is known
 $exe       = $null
@@ -194,9 +198,9 @@ $t8Parent  = Join-Path $runDir "t8"
 $work8     = Join-Path $t8Parent "req3"                     # T8 (hostile project files)
 $work9     = Join-Path $runDir "req4"                       # T9 (--append-system-prompt, the generator's real command line)
 $sibling   = Join-Path $runDir "sibling"
-$outDir    = Join-Path $PSScriptRoot "results\$stamp"
+$outDir    = Join-Path $spikeHome "results\$stamp"
 $rawDir    = Join-Path $outDir "raw"
-$tmpDir    = Join-Path $PSScriptRoot "_tmp"
+$tmpDir    = Join-Path $spikeHome "_tmp"
 $results   = Join-Path $outDir "results.txt"
 if ($AnalyzeOnly) { $results = Join-Path $outDir "analysis.txt" }
 $pml       = Join-Path $rawDir "procmon.pml"
@@ -204,7 +208,7 @@ $pmCsv     = Join-Path $rawDir "procmon.csv"
 $procmon   = Join-Path $tmpDir "Procmon64.exe"
 $junction  = Join-Path $work "linked"
 $SettingsFile = Join-Path $hostDir "settings.json"
-$resultsRoot  = Join-Path $PSScriptRoot "results"
+$resultsRoot  = Join-Path $spikeHome "results"
 $approvalFile = Join-Path $build "data\generator\cli-approval.json"   # last decided build (kept for older Dashboard builds)
 $approvalsFile = Join-Path $build "data\generator\cli-approvals.json" # the tested list, read by the Dashboard's CLI gate before every launch
 $McpFile      = Join-Path $hostDir "mcp.json"

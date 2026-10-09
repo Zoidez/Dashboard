@@ -195,6 +195,8 @@ export class Shell {
   /** Start with Windows: only the packaged exe registers itself; a development run never touches Windows. */
   applyLoginItem(): void {
     if (!app.isPackaged) { this.d.audit.write("_host", "fs", "start with Windows not applied: unpackaged run"); return; }
+    // Test runs switch the feature off (they must never write the user's sign-in programs). This can only disable.
+    if (process.env.DASHBOARD_NO_LOGIN_ITEM === "1") { this.d.audit.write("_host", "fs", "start with Windows not applied: disabled for this run"); return; }
     this.d.setLoginItem(this.d.options.general.startWithWindows);
   }
 

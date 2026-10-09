@@ -37,7 +37,8 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 - React grid, Options, tray, start with Windows, hot-loading done.
 - Generator pipeline done (New card, runner, validator V0-V5, host-suite record, approval canvas, gate on the tested list). Tested with a fake CLI only.
 - **Waiting on the user:** spike v3.9 (gate requires harness 3.9), `npm run test:host-suite`, first real generation.
-- **Next:** packaged Dashboard.exe in `Build\app\`.
+- Packaged: `npm run package` -> `Build\app\Dashboard.exe`; `Build\Dashboard.lnk`. E2E on the packaged exe: set `DASH_EXE`.
+- Tests must never touch the user's Windows settings: the test helper sets `DASHBOARD_NO_LOGIN_ITEM=1`.
 
 ## Working in this repo
 - Use the project's Node: prepend `tools\node` to PATH (Node 24.21.0; the system Node 20 is too old for Electron 44).

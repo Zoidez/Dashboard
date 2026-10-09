@@ -12,4 +12,6 @@ Design docs live in the claude.ai Project "Dashboard" (PROJECT.md, RULES.md, PRE
 Use the project-local Node (`tools/node`, Node 24; see `CLAUDE.md`), then:
 - `npm run build` — bundle into `dist/`
 - `npm start` — run the app on the `Build/` instance
-- `npm test` — typecheck, unit tests, end-to-end security tests (TESTPLAN part A)
+- `npm test` — typecheck, unit tests, end-to-end tests
+- `npm run package` — portable `Build/app/Dashboard.exe` (`npm run setup:shortcut` once for `Build/Dashboard.lnk`)
+- `npm run test:race` — the two 5-minute junction-swap races; `npm run test:host-suite` — security suite + record for this build

@@ -72,7 +72,7 @@ test("F: grid places views, saves layout, Stop/Start/Revoke, Options, close to t
     await opts.locator(".tabs button", { hasText: "General" }).click();
     await opts.locator("#sww").check();
     await waitFor(() => JSON.parse(readFileSync(join(inst, "data", "config", "options.json"), "utf8")).general.startWithWindows === true, "start with Windows saved");
-    const unpackaged = await waitFor(async () => (await snapshot(app)).audit.some((e) => e.detail === "start with Windows not applied: unpackaged run"), "the dev run not to touch Windows");
+    const unpackaged = await waitFor(async () => (await snapshot(app)).audit.some((e) => /^start with Windows not applied: (unpackaged run|disabled for this run)$/.test(e.detail)), "the dev run not to touch Windows");
     expect(unpackaged).toBe(true);
     await opts.locator("#sww").uncheck();
     await opts.locator(".tabs button", { hasText: "Security log" }).click();

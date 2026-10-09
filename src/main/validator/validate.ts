@@ -31,6 +31,8 @@ export interface ValidationInput {
   feedTaskIds: string[];
   manifestSchema: object;
   hostApiDts: string;
+  /** TypeScript lib files as .txt (packaged app); see typecheck.ts. */
+  tsLibDir?: string;
   /** VALIDATOR.md: an untested host does not judge cards. null = this build passed its security suite. */
   hostSuiteProblem: string | null;
   /** V5, run by the host in the real card runtime with a deny-all broker. */
@@ -216,7 +218,7 @@ export async function validate(input: ValidationInput, streamsOf?: (p: string) =
   const uses = parsed.flatMap((r) => r.uses);
 
   if (!done("V2", stageV2(manifest, uses, input))) return { ok: false, stages, card };
-  if (!done("V3", typecheck({ files: codeFiles, hostApiDts: input.hostApiDts }))) return { ok: false, stages, card };
+  if (!done("V3", typecheck({ files: codeFiles, hostApiDts: input.hostApiDts, libDir: input.tsLibDir }))) return { ok: false, stages, card };
   if (!done("V4", v4errors)) return { ok: false, stages, card };
   if (input.hostSuiteProblem) { done("V5", [input.hostSuiteProblem]); return { ok: false, stages, card }; }
   if (input.smoke && !done("V5", await input.smoke(card))) return { ok: false, stages, card };
