@@ -13,7 +13,8 @@
     "start": "npm run build && electron . --instance=Build",
     "test:unit": "node --import tsx --test \"test/unit/**/*.test.ts\"",
     "test:e2e": "npm run build && playwright test -c test/e2e/playwright.config.ts",
-    "test": "npm run typecheck && npm run test:unit && npm run test:e2e"
+    "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
+    "test:race": "node --import tsx --test test/race/toctou.test.ts"
   },
   "dependencies": {
     "koffi": "3.3.2"
