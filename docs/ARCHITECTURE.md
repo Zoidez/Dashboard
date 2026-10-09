@@ -42,7 +42,18 @@ User framing (2026-10-08): the Dashboard does all outside operations; cards ask 
 - Create: open the **parent directory** handle the same way and verify it, then create the child relative to that handle (`NtCreateFile` with `RootDirectory`). Names are single components only: no separators, no `..`, no `:` (alternate data streams), no reserved device names (CON, NUL, COM1...), no trailing dots or spaces.
 - Delete goes to the Recycle Bin. Rename, copy and recursive operations are **not in v1**.
 - Build order: read, create and write first, with their negative tests. **Delete is built last.** The Windows Recycle Bin API works on paths, not handles, so it reopens the race the handle checks close. Delete ships in v1 only if the prototype proves a race-resistant way to recycle; otherwise it is deferred.
-- Directory listing returns names and types only, from a verified directory handle.
+- **Delete: shipped (2026-10-09), race-resistant design.** (1) The parent folder is opened verified and held without `FILE_SHARE_DELETE` for the whole operation; while it is open, Windows refuses to rename, move or replace it or any folder above it (tested). (2) The file is opened without following links, verified, and renamed **on that handle** (`NtSetInformationFile`, `FileRenameInformation`, RootDirectory = the pinned parent) to a random name. (3) Only that random name inside the pinned folder goes to the path-based Recycle Bin call (`SHFileOperationW`, `FOF_ALLOWUNDO`); `FOF_WANTNUKEWARNING` makes Windows ask the user if a file cannot be recycled, so a delete is never silently permanent. (4) If recycling did not happen, the file is renamed back. Files only, known types only, never programs. Evidence: the 5-minute delete race (TESTPLAN A4) deleted nothing outside in 580 attempts against 1,267 junction swaps. Not tested: a drive without a Recycle Bin (none available here).
+- Directory listing returns names and types only, from a verified directory handle; links are left out.
+
+### 4a. The file check protocol (user requirement 2026-10-09)
+Every card file operation passes one ordered list of checks before the card gets or writes a byte (`src/filehelper/file-checks.ts`; further file controls are added there):
+1. **syntax**: a plain drive path, run on the card's raw string before anything normalizes it (no `\\?\`, `\\.\` or UNC, no `..`, no `:` stream, no device names, no trailing dot or space, no `./`);
+2. **scope**: an approved permission covers it; never inside the instance;
+3. **verified**: opened once without following links; the handle's real path must equal the requested path (rules out junctions, symlinks, 8.3 names, drive aliases); the operation uses that handle;
+4. **kind**: exists, and is a file or folder as the operation needs;
+5. **type**: the extension is a known type (`src/filehelper/file-types.ts`) and the bytes really are that type; unknown types, files without an extension and programs or scripts are refused;
+6. **write rules**: writable types only; the new content passes the type check; no writes through hard links.
+The operations run in the native file helper, a separate utility process; the main process never opens card files itself.
 
 ### 5. Programs: not in v1. DLLs: never for cards
 - Running or launching executables (including console interaction) is **removed from v1** (user decision 2026-10-08). `api.process` exists only as a reserved name and always fails; the schema rejects `process.run` and `process.launch`. Reason it needs a separate design before returning: it can grant full control of the user's account (shells, interpreters), which no wrapper can narrow. If it comes back, it comes back with its own model (e.g. a separately approved tier), not as an ordinary permission.

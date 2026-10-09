@@ -61,6 +61,9 @@ interface Api {
   SetFilePointerEx: (h: Handle, dist: bigint, out: null, method: number) => number;
   NtCreateFile: (out: Handle[], access: number, oa: unknown, iosb: unknown, alloc: null, attrs: number, share: number, disp: number, opts: number, ea: null, eaLen: number) => number;
   RtlNtStatusToDosError: (status: number) => number;
+  NtSetInformationFile: (h: Handle, iosb: unknown, buf: Buffer, size: number, cls: number) => number;
+  SHFileOperationW: (op: Record<string, unknown>) => number;
+  CoInitializeEx: (r: null, flags: number) => number;
 }
 
 let api: Api | null = null;
@@ -88,6 +91,16 @@ function w(): Api {
     SetFilePointerEx: k32.func("int __stdcall SetFilePointerEx(intptr_t h, int64_t dist, void *out, uint32_t method)"),
     NtCreateFile: nt.func("uint32_t __stdcall NtCreateFile(_Out_ intptr_t *h, uint32_t access, DASH_OBJECT_ATTRIBUTES *oa, _Out_ DASH_IO_STATUS_BLOCK *iosb, void *alloc, uint32_t attrs, uint32_t share, uint32_t disp, uint32_t opts, void *ea, uint32_t eaLen)"),
     RtlNtStatusToDosError: nt.func("uint32_t __stdcall RtlNtStatusToDosError(uint32_t status)"),
+    NtSetInformationFile: nt.func("uint32_t __stdcall NtSetInformationFile(intptr_t h, _Out_ DASH_IO_STATUS_BLOCK *iosb, const uint8_t *buf, uint32_t size, int cls)"),
+    SHFileOperationW: (() => {
+      // SHFILEOPSTRUCTW, natural alignment on x64 (shellapi.h packs it only on 32-bit Windows).
+      koffi.struct("DASH_SHFILEOPSTRUCTW", {
+        hwnd: "void *", wFunc: "uint32_t", pFrom: "void *", pTo: "void *", fFlags: "uint16_t",
+        fAnyOperationsAborted: "int", hNameMappings: "void *", lpszProgressTitle: "void *",
+      });
+      return koffi.load("shell32.dll").func("int __stdcall SHFileOperationW(_Inout_ DASH_SHFILEOPSTRUCTW *op)");
+    })(),
+    CoInitializeEx: koffi.load("ole32.dll").func("int32_t __stdcall CoInitializeEx(void *reserved, uint32_t flags)"),
   } as unknown as Api;
   return api;
 }
@@ -195,6 +208,43 @@ export function createChild(dir: Handle, name: string, directory: boolean): Hand
     throw new Win32Error("NtCreateFile", a.RtlNtStatusToDosError(st));
   }
   return out[0];
+}
+
+/** Renames an open file (opened with DELETE access) to `newName` inside the folder `dir` (a verified handle). Fails if the name exists. */
+export function renameInPlace(h: Handle, dir: Handle, newName: string): void {
+  if (newName.includes("\\") || newName.includes("/")) throw new Error("renameInPlace takes a name, not a path");
+  const a = w();
+  const name = Buffer.from(newName, "utf16le");
+  // FILE_RENAME_INFORMATION (x64): ReplaceIfExists @0, RootDirectory @8, FileNameLength @16, FileName @20.
+  // NtSetInformationFile, because the Win32 wrapper rejects a RootDirectory handle (error 87).
+  const buf = Buffer.alloc(20 + name.length + 2);
+  buf.writeUInt32LE(0, 0);
+  buf.writeBigInt64LE(BigInt(dir), 8);
+  buf.writeUInt32LE(name.length, 16);
+  name.copy(buf, 20);
+  const st = a.NtSetInformationFile(h, {}, buf, buf.length, 10 /* FileRenameInformation */) >>> 0;
+  if (st !== 0) throw new Win32Error("NtSetInformationFile", a.RtlNtStatusToDosError(st));
+}
+
+let comReady = false;
+
+/**
+ * Sends one file to the Recycle Bin (SHFileOperationW, FO_DELETE + FOF_ALLOWUNDO). Never silently
+ * permanent: FOF_WANTNUKEWARNING makes Windows ask the user if the file cannot be recycled.
+ * Returns true if the operation ran and was not cancelled.
+ */
+export function recycle(path: string): boolean {
+  const a = w();
+  if (!comReady) { a.CoInitializeEx(null, 0x2 /* COINIT_APARTMENTTHREADED */); comReady = true; }
+  const from = Buffer.from(path + "\0\0", "utf16le");
+  const FO_DELETE = 3, FOF_SILENT = 0x4, FOF_NOCONFIRMATION = 0x10, FOF_ALLOWUNDO = 0x40, FOF_NOERRORUI = 0x400, FOF_WANTNUKEWARNING = 0x4000;
+  const op = {
+    hwnd: null, wFunc: FO_DELETE, pFrom: from, pTo: null,
+    fFlags: FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING,
+    fAnyOperationsAborted: 0, hNameMappings: null, lpszProgressTitle: null,
+  };
+  const rc = a.SHFileOperationW(op);
+  return rc === 0 && !op.fAnyOperationsAborted;
 }
 
 export interface DirEntry { name: string; isDirectory: boolean; isReparse: boolean; size: number; modifiedAt: string }

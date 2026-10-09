@@ -14,6 +14,7 @@ test("A4: api.fs works inside its folder and refuses every attack through the ap
   const S = join(base, "approved"), O = join(base, "outside");
   mkdirSync(S); mkdirSync(O);
   writeFileSync(join(S, "notes.txt"), "hello");
+  writeFileSync(join(S, "old.txt"), "old note");
   writeFileSync(join(O, "secret.txt"), "SECRET");
   writeFileSync(join(S, "fake.png"), "PK\x03\x04 zip in disguise");
   symlinkSync(O, join(S, "link"), "junction");
@@ -28,6 +29,7 @@ test("A4: api.fs works inside its folder and refuses every attack through the ap
     permissions: [
       { type: "fs.read", path: S, recursive: true, reason: "reads the notes folder" },
       { type: "fs.write", path: S, recursive: true, reason: "saves notes into the folder" },
+      { type: "fs.delete", path: S, recursive: true, reason: "removes old notes from the folder" },
     ],
     ui: `${PRELUDE}
 export async function mount(el, api) {
@@ -54,7 +56,9 @@ export async function mount(el, api) {
   r.instance = await attempt(() => api.fs.readText(${J(inst, "data", "approvals", "file-card.json")}));
   r.exe = await attempt(() => api.fs.writeBytes(${J(S, "tool.exe")}, new Uint8Array([77, 90])));
   r.fakePng = await attempt(() => api.fs.readBytes(${J(S, "fake.png")}));
-  r.remove = await attempt(() => api.fs.remove(${J(S, "notes.txt")}));
+  r.remove = await attempt(() => api.fs.remove(${J(S, "old.txt")}));
+  r.removeLink = await attempt(() => api.fs.remove(${J(S, "link", "secret.txt")}));
+  r.removeOutside = await attempt(() => api.fs.remove(${J(O, "secret.txt")}));
   await report(api, "fs", r);
   await new Promise((res) => setTimeout(res, 2500));   // the test drops a file meanwhile
   await report(api, "events", events);
@@ -73,14 +77,16 @@ export async function mount(el, api) {
     for (const k of ["write", "append", "mkdir", "watch"]) expect(r[k].ok, k).toBe(true);
     expect(readFileSync(join(S, "new.md"), "utf8")).toBe("# written by the card");
     expect(readFileSync(join(S, "notes.txt"), "utf8")).toBe("hello world");
-    expect(r.list.v).toBe("fake.png,new.md,notes.txt,sub");          // the junction is not listed
+    expect(r.list.v).toBe("fake.png,new.md,notes.txt,old.txt,sub");  // the junction is not listed
+    expect(r.remove.ok, JSON.stringify(r.remove)).toBe(true);
+    expect(existsSync(join(S, "old.txt"))).toBe(false);
     expect(r.stat.v).toBe("11");
     expect(events).toContain("add:dropped.txt");
 
     const expectCode: Record<string, string> = {
       outside: "PermissionDenied", dotdot: "InvalidArgument", junction: "PermissionDenied", junctionWrite: "PermissionDenied",
       device: "InvalidArgument", unc: "InvalidArgument", dotdotInside: "InvalidArgument", relative: "InvalidArgument", ads: "InvalidArgument", nul: "InvalidArgument",
-      instance: "PermissionDenied", exe: "PermissionDenied", fakePng: "InvalidArgument", remove: "PermissionDenied",
+      instance: "PermissionDenied", exe: "PermissionDenied", fakePng: "InvalidArgument", removeLink: "PermissionDenied", removeOutside: "PermissionDenied",
     };
     for (const [k, code] of Object.entries(expectCode)) expect(r[k], k).toMatchObject({ ok: false, code });
     expect(existsSync(join(O, "planted.txt"))).toBe(false);
@@ -89,7 +95,7 @@ export async function mount(el, api) {
 
     const snap = await snapshot(app);
     const mine = snap.audit.filter((e) => e.cardId === "file-card");
-    expect(mine.filter((e) => e.kind === "fs").map((e) => e.detail.split(" ")[0])).toEqual(expect.arrayContaining(["writeText", "appendText", "mkdir"]));
+    expect(mine.filter((e) => e.kind === "fs").map((e) => e.detail.split(" ")[0])).toEqual(expect.arrayContaining(["writeText", "appendText", "mkdir", "remove"]));
     expect(mine.some((e) => e.kind === "denied" && e.detail.includes("[check: verified]"))).toBe(true);
 
     // The file helper is its own process, not the main process and not a card's.

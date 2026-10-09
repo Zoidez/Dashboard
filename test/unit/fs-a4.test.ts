@@ -161,3 +161,65 @@ test("type rules: unknown, program and mismatched types are refused; content mus
 });
 
 // The junction-swap race (TOCTOU) runs for 5 minutes: test/race/toctou.test.ts (npm run test:race).
+
+// ---------- delete (Recycle Bin) ----------
+
+import { readdirSync, renameSync, statSync } from "node:fs";
+import * as win from "../../src/filehelper/win32.js";
+import { execFileSync } from "node:child_process";
+
+function inRecycleBin(content: string, drive: string): boolean {
+  const sid = /S-1-5-[0-9-]+/.exec(execFileSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "whoami.exe"), ["/user"], { encoding: "utf8" }))?.[0];
+  if (!sid) return false;
+  const bin = join(`${drive}:\\`, "$Recycle.Bin", sid);
+  for (const f of readdirSync(bin)) {
+    if (!f.startsWith("$R")) continue;
+    try { if (statSync(join(bin, f)).size === content.length && readFileSync(join(bin, f), "utf8") === content) return true; } catch { /* folder or locked */ }
+  }
+  return false;
+}
+
+test("delete: the file goes to the Recycle Bin, never away for good", () => {
+  const unique = "recycle-me-" + Math.random().toString(36).slice(2);
+  writeFileSync(join(S, "bye.txt"), unique);
+  ops.remove(join(S, "bye.txt"), ctx);
+  assert.equal(existsSync(join(S, "bye.txt")), false);
+  assert.ok(!readdirSync(S).some((f) => f.startsWith(".dashboard-recycle-")), "no temporary name left behind");
+  assert.ok(inRecycleBin(unique, S[0]), "the file's content is in this user's Recycle Bin");
+});
+
+test("delete: while the parent folder is pinned, it and the folder above cannot be renamed", () => {
+  const top = join(S, "pin-top"), mid = join(top, "pin-mid");
+  mkdirSync(mid, { recursive: true });
+  const h = win.openNoFollow(mid, win.FILE_LIST_DIRECTORY | win.FILE_TRAVERSE | win.FILE_READ_ATTRIBUTES | win.SYNCHRONIZE, win.FILE_SHARE_READ | win.FILE_SHARE_WRITE);
+  try {
+    assert.throws(() => renameSync(mid, join(top, "moved")), /EPERM|EBUSY|EACCES/, "the pinned folder itself was renamed");
+    assert.throws(() => renameSync(top, join(S, "pin-top-moved")), /EPERM|EBUSY|EACCES/, "the folder above the pinned one was renamed");
+  } finally { win.close(h); }
+  renameSync(mid, join(top, "moved"));                    // and once released, it can be renamed again
+});
+
+test("delete: attacks are refused and nothing outside is touched", (t) => {
+  writeFileSync(join(S, "keep.txt"), "keep");
+  writeFileSync(join(S, "prog.exe"), "MZ");
+  refused(() => ops.remove(join(S, "jlink", "secret.txt"), ctx), "PermissionDenied", /is a link|leads to/);   // stops at the pinned parent
+  refused(() => ops.remove(join(S, "jlink"), ctx), "PermissionDenied");
+  refused(() => ops.remove(join(O, "secret.txt"), ctx), "PermissionDenied", /outside the approved folder/);
+  refused(() => ops.remove(`${S}\\..\\outside\\secret.txt`, ctx), "InvalidArgument", /"\.\."/);
+  refused(() => ops.remove(`${S}\\keep.txt:hidden`, ctx), "InvalidArgument", /alternate data stream/);
+  refused(() => ops.remove(join(S, "deep"), ctx), "PermissionDenied", /not supported/);   // folders: no extension, not a file
+  refused(() => ops.remove(join(S, "prog.exe"), ctx), "PermissionDenied", /programs and scripts/);
+  refused(() => ops.remove(join(S, "deep", "d.txt"), flat), "PermissionDenied");
+  const longName = join(S, "averyveryverylongfilename.txt");
+  if (existsSync(longName)) {
+    const k32 = koffi.load("kernel32.dll");
+    const gs = k32.func("uint32_t __stdcall GetShortPathNameW(str16 longPath, _Out_ uint8_t *buf, uint32_t len)");
+    const buf = Buffer.alloc(2048);
+    const n = gs(longName, buf, 1024) as number;
+    const shortName = n ? buf.toString("utf16le", 0, n * 2).split("\\").pop()! : "";
+    if (shortName && shortName.toLowerCase() !== "averyveryverylongfilename.txt") refused(() => ops.remove(join(S, shortName), ctx), "PermissionDenied", /leads to/);
+    else t.diagnostic("8.3 delete case skipped: no short name");
+  }
+  noSecretOutside();
+  assert.ok(existsSync(join(S, "keep.txt")) && existsSync(join(S, "prog.exe")) && existsSync(join(S, "deep", "d.txt")));
+});

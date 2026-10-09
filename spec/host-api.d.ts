@@ -45,7 +45,8 @@ export interface FileStat {
 }
 
 export interface FsApi {
-  /** Needs fs.read covering the path. Max 10 MB per call. */
+  /** Needs fs.read covering the path. Max 10 MB per call. Every fs call passes the file check protocol
+   *  (ARCHITECTURE.md 4a): plain drive paths only, no links, and the file must really be the type its extension says. */
   readText(path: string): Promise<string>;
   /** Needs fs.read. Max 10 MB per call. */
   readBytes(path: string): Promise<Uint8Array>;
@@ -61,7 +62,8 @@ export interface FsApi {
   appendText(path: string, text: string): Promise<void>;
   /** Needs fs.write on the parent directory. */
   mkdir(dir: string): Promise<void>;
-  /** Needs fs.delete covering the path. Moves to the Windows Recycle Bin; never a permanent delete.
+  /** Needs fs.delete covering the path. Files only, of a known type. Moves to the Windows Recycle Bin; never a permanent delete
+   *  (if Windows cannot recycle the file, it asks the user).
    *  Rename, copy and recursive operations are not available in apiVersion 0. */
   remove(path: string): Promise<void>;
   /** Needs fs.read on the directory. Calls back on changes until the returned function is called. */

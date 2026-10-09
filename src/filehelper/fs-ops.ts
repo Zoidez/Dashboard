@@ -1,8 +1,8 @@
 /**
  * Card file operations (api.fs), each one composed from the file check protocol (file-checks.ts).
- * Delete is not here yet: it is built last, and only if it can be made race-resistant
- * (ARCHITECTURE.md 4).
+ * Delete goes to the Recycle Bin only, with the parent folder pinned (see remove()).
  */
+import { randomUUID } from "node:crypto";
 import { watch as fsWatch } from "node:fs";
 import { dirname, basename } from "node:path";
 import { checkContent, checkScope, checkSyntax, fileTypeFor, FileCheckError, MAX_FILE_BYTES, openVerified, type CheckContext } from "./file-checks.js";
@@ -138,6 +138,45 @@ export function mkdir(raw: unknown, ctx: CheckContext): void {
     if (!(e instanceof FileCheckError) || e.code !== "NotFound") throw e;
   }
   win.close(createVerified(path, ctx, true));
+}
+
+/**
+ * Moves one file to the Recycle Bin (never a permanent delete; folders are not deleted).
+ * Race resistance: the parent folder is held open without FILE_SHARE_DELETE for the whole
+ * operation, so it and the folders above it cannot be renamed, moved or replaced. The file is
+ * opened without following links, verified, and renamed ON THAT HANDLE to a random name; only that
+ * random name inside the pinned folder is handed to the path-based Recycle Bin call.
+ */
+export function remove(raw: unknown, ctx: CheckContext): void {
+  const path = checkSyntax(raw);
+  checkScope(path, ctx);
+  fileTypeFor(path, "read");                              // only files of known types; never programs
+  const parent = openParent(path, ctx);
+  try {
+    const v = openVerified(path, win.DELETE | win.FILE_READ_ATTRIBUTES | win.SYNCHRONIZE, win.FILE_SHARE_READ | win.FILE_SHARE_WRITE, ctx, "file");
+    const name = basename(path);
+    const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+    const temp = `.dashboard-recycle-${randomUUID()}${ext}`;
+    const tempPath = `${dirname(path)}\\${temp}`;
+    withHandle(v, () => {
+      try { win.renameInPlace(v.h, parent.h, temp); }
+      catch (e) { throw new FileCheckError("IOError", "delete", `${path} could not be prepared for the Recycle Bin: ${(e as Error).message}`); }
+    });
+    let recycled = false;
+    try { recycled = win.recycle(tempPath); } catch { recycled = false; }
+    let stillThere = true;
+    try { win.close(win.openNoFollow(tempPath, win.FILE_READ_ATTRIBUTES, ANY_SHARE)); } catch { stillThere = false; }
+    if (!recycled || stillThere) {
+      // Put the file back under its own name; it was not deleted.
+      try {
+        const back = win.openNoFollow(tempPath, win.DELETE | win.FILE_READ_ATTRIBUTES | win.SYNCHRONIZE, win.FILE_SHARE_READ | win.FILE_SHARE_WRITE);
+        try { win.renameInPlace(back, parent.h, name); } finally { win.close(back); }
+      } catch { /* left under the temporary name; reported below */ }
+      throw new FileCheckError("IOError", "delete", `${path} was not moved to the Recycle Bin (cancelled or not possible here)`);
+    }
+  } finally {
+    win.close(parent.h);
+  }
 }
 
 /**

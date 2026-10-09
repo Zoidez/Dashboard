@@ -345,7 +345,6 @@ export class Broker {
         throw new HostError("PermissionDenied", "cards can never access the Dashboard's own folder");
       }
       const perm = this.grant(s, { type: fsType, path }, `${fsType} ${path}`) as Extract<Permission, { type: "fs.read" | "fs.write" | "fs.delete" }>;
-      if (fsType === "fs.delete") throw new HostError("IOError", "deleting files is not available in this build yet");
       // The helper runs the full file check protocol against the scope of the covering permission.
       const ctx = { instanceRoot: this.opts.instanceRoot, scope: { path: this.opts.resolvePath(perm.path), recursive: perm.recursive ?? false } };
       const op = m.slice(3);
@@ -360,7 +359,7 @@ export class Broker {
           return id;
         }
         const v = await this.services.files.call(op, [path, ...a.slice(1)], ctx);
-        if (fsType === "fs.write") this.audit.write(s.cardId, "fs", `${op} ${path}`);
+        if (fsType !== "fs.read") this.audit.write(s.cardId, "fs", `${op} ${path}`);
         return v;
       } catch (e) {
         const fe = e as { code?: string; check?: string; message?: string };

@@ -83,7 +83,8 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 ### Next build step
 - [x] Runtime skeleton: Electron, one card view, broker with network blocking and channel identity, first negative tests (proves "The wrapper" in code). Done 2026-10-09: TESTPLAN A1, A2, A3, A6, A7, A8, A9 (memory, size, rate), A10, A11 pass as automated tests (8 e2e, 30 unit incl. the CLI gate).
 ### Next build steps
-- [ ] Native file helper (koffi: CreateFileW + GetFinalPathNameByHandleW, NtCreateFile with RootDirectory) and `api.fs` read/list/stat/write, with A4. Delete last, only if race-resistant. ADS detection (FindFirstStreamW) for VALIDATOR V0.
+- [x] Native file helper and `api.fs` (read, list, stat, write, append, mkdir, watch, delete to the Recycle Bin) with the file check protocol; A4 passes (unit, e2e, and two 5-minute races). Done 2026-10-09.
+- [ ] ADS detection (FindFirstStreamW) for VALIDATOR V0 (staging check, with the validator).
 - [ ] Reports + watch-feed preset (chokidar, report validation, offline banner, retention) and the sanitized Markdown renderer (replaces the interim plain-text `ui.markdown`).
 - [ ] `worker.js` as a Web Worker in the card view (messaging over the same port).
 - [ ] React grid, File > Options, tray and start with Windows.
@@ -132,6 +133,11 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-09 | **`net.http` to a non-public IP literal is marked red** on the approval canvas | User decision. The broker already allows such an address only when the permission names it. |
 | 2026-10-09 | **New permission `links.open`** (`origins` list, or `any: true`); `api.ui.openLink` is denied without it. `any: true` is marked **yellow**, a new caution level below red that does not trigger the approval dialog | User decision: reaching known sites is fine; opening arbitrary links is yellow. The host cannot see clicks inside the card process, so links stay https-only and rate-limited (1 per 2 s per card). |
 | 2026-10-09 | Electron fuses vs. testing the packaged build: deferred | User decision: decide when the packaged build exists. |
+| 2026-10-09 | **File check protocol** before every card file operation: syntax, scope, verified real path, kind, type-matches-extension, write rules; extra file controls go there | User requirement. ARCHITECTURE.md 4a. |
+| 2026-10-09 | Race tests run for 5 minutes with checks every 0.5 s against a swapper at random 50-400 ms (`npm run test:race`) | User design, after the first race test barely swapped (the open handles blocked the swapper, which is correct behaviour). |
+| 2026-10-09 | The broker runs the syntax check on the card's **raw** path; nothing normalizes a card path first | Found by the A4 e2e test: Node's path.resolve removed ".." and turned "\?\C:\..." and UNC paths into paths on the current drive before any check saw them. |
+| 2026-10-09 | **Delete ships** (Recycle Bin only): parent pinned, rename on the verified handle to a random name, recycle that name, Windows asks if a file cannot be recycled | Race-resistant per the 5-minute delete race; ARCHITECTURE.md 4. |
+| 2026-10-09 | File types: text (txt, md, csv, json, xml, yaml, ini, ...), images, pdf, audio writable; html/svg, archives, office files, video read-only; programs and scripts never | Writing html/svg, archives or office files can carry scripts, programs or macros. |
 | 2026-10-09 | **"Test the new CLI version" button** on the Claude card when the installed CLI build is not on the tested list (or its testing is incomplete); runs the spike on a click; candidates install side by side and never replace the active approved build; switching builds is a user click | User requirement. Design details by Claude (ARCHITECTURE.md "Claude card: CLI test states"). |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)

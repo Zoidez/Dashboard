@@ -26,6 +26,7 @@ function run(r: Req): unknown {
     case "writeBytes": ops.writeBytes(a0, a1, r.ctx); return null;
     case "appendText": ops.appendText(a0, a1, r.ctx); return null;
     case "mkdir": ops.mkdir(a0, r.ctx); return null;
+    case "remove": ops.remove(a0, r.ctx); return null;
     case "watch": {
       const stop = ops.watch(a0, r.ctx, (ev) => port.postMessage({ watch: r.id, ev }));
       watches.set(r.id, stop);
