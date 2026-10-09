@@ -41,21 +41,32 @@ test(`TOCTOU: junction swapped during checks every ${INTERVAL_MS} ms for ${SECON
     const real = ${JSON.stringify(real)}, parked = ${JSON.stringify(parked)}, out = ${JSON.stringify(O)};
     const end = Date.now() + ${SECONDS * 1000};
     const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-    const stats = { toJunction: 0, toReal: 0, failures: {} };
+    const stats = { toJunction: 0, toReal: 0, healed: 0, failures: {} };
     const fail = (step, e) => { const k = step + ":" + (e.code || e.message); stats.failures[k] = (stats.failures[k] || 0) + 1; };
     let junction = false;
+    // A failed step (e.g. link:EBUSY leaving a half-made folder, then unpark:EPERM) can leave the real
+    // folder parked with a leftover at its place; without repair every later swap fails.
+    const heal = () => {
+      if (!fs.existsSync(parked)) return true;
+      try { if (fs.lstatSync(real).isSymbolicLink()) fs.rmdirSync(real); else fs.rmSync(real, { recursive: true, force: true }); }
+      catch (e) { if (e.code !== "ENOENT") { fail("heal-clear", e); return false; } }
+      try { fs.renameSync(parked, real); stats.healed++; return true; } catch (e) { fail("heal-restore", e); return false; }
+    };
     while (Date.now() < end) {
       sleep(50 + Math.floor(Math.random() * 350));
+      if (!junction && !heal()) continue;
       if (!junction) {
         try { fs.renameSync(real, parked); } catch (e) { fail("park", e); continue; }
         try { fs.symlinkSync(out, real, "junction"); junction = true; stats.toJunction++; }
         catch (e) { fail("link", e); try { fs.renameSync(parked, real); } catch (e2) { fail("unpark", e2); } }
       } else {
         try { fs.rmdirSync(real); } catch (e) { fail("unlink", e); continue; }
-        try { fs.renameSync(parked, real); junction = false; stats.toReal++; } catch (e) { fail("restore", e); }
+        junction = false;
+        try { fs.renameSync(parked, real); stats.toReal++; } catch (e) { fail("restore", e); }
       }
     }
-    if (junction) { try { fs.rmdirSync(real); fs.renameSync(parked, real); } catch (e) { fail("final", e); } }
+    if (junction) { try { fs.rmdirSync(real); } catch (e) { fail("final", e); } }
+    for (let i = 0; i < 20 && !heal(); i++) sleep(100);
     process.stdout.write(JSON.stringify(stats));
   `]);
   let out = "";
@@ -82,11 +93,11 @@ test(`TOCTOU: junction swapped during checks every ${INTERVAL_MS} ms for ${SECON
   await finished;
   if (existsSync(parked)) { try { rmdirSync(real); } catch { /* it is the real folder */ } try { renameSync(parked, real); } catch { /* ignore */ } }
 
-  const sw = JSON.parse(out || "{}") as { toJunction: number; toReal: number; failures: Record<string, number> };
+  const sw = JSON.parse(out || "{}") as { toJunction: number; toReal: number; healed?: number; failures: Record<string, number> };
   const refusedReads = Object.values(reads.refused).reduce((a, b) => a + b, 0);
   const plantedOutside = readdirSync(O).filter((f) => f !== "f.txt");
   console.log(`checks: ${n} (every ${INTERVAL_MS} ms for ${SECONDS} s)${OFFICIAL ? "" : "  [shortened run: not a pass]"}`);
-  console.log(`swapper: to-junction ${sw.toJunction}, back-to-real ${sw.toReal}, failed attempts ${JSON.stringify(sw.failures)}`);
+  console.log(`swapper: to-junction ${sw.toJunction}, back-to-real ${sw.toReal}, repaired ${sw.healed ?? 0}, failed attempts ${JSON.stringify(sw.failures)}`);
   console.log(`reads: safe ${reads.safe}, refused ${JSON.stringify(reads.refused)}, LEAKED ${reads.leaked}, other errors ${reads.other}`);
   console.log(`writes: inside ${writes.done}, refused ${writes.refused}, other errors ${writes.other}; files planted outside: ${plantedOutside.length}`);
 
