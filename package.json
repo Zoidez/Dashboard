@@ -17,11 +17,15 @@
     "test:race": "node --import tsx --test test/race/*.test.ts"
   },
   "dependencies": {
-    "koffi": "3.3.2"
+    "koffi": "3.3.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
     "@types/node": "24.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "electron": "44.7.0",
     "esbuild": "0.28.2",
     "tsx": "4.23.15",

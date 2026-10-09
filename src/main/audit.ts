@@ -36,6 +36,11 @@ export class AuditLog {
     } catch { /* the in-memory copy still has it; disk errors must not crash the broker */ }
   }
 
+  /** The security log (denials, blocks, refused or flagged cards): newest last. */
+  security(limit = 500): AuditEntry[] {
+    return this.recent.filter((e) => SECURITY_KINDS.has(e.kind)).slice(-limit);
+  }
+
   entries(filter?: { cardId?: string; kind?: AuditKind }): AuditEntry[] {
     return this.recent.filter((e) => (!filter?.cardId || e.cardId === filter.cardId) && (!filter?.kind || e.kind === filter.kind));
   }

@@ -1,6 +1,6 @@
 /**
  * File > Options, saved to data/config/options.json (ARCHITECTURE.md, "Menu and Options").
- * Only the parts in use exist so far: the watched feeds.
+ * General settings and the watched feeds; every edit is validated here before it is saved.
  */
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -17,7 +17,9 @@ export interface FeedConfig {
   keep: number;
 }
 
-export interface Options { schema: 1; feeds: FeedConfig[] }
+export interface General { startWithWindows: boolean; closeToTray: boolean }
+export interface Options { schema: 1; general: General; feeds: FeedConfig[] }
+const DEFAULT_GENERAL: General = { startWithWindows: false, closeToTray: true };
 
 /** The three connected tasks (EXCHANGE.md, "Connected tasks"). */
 export const DEFAULT_FEEDS: FeedConfig[] = [
@@ -43,14 +45,41 @@ export class OptionsStore {
     let v: Options | null = null;
     try {
       const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<Options>;
-      if (raw && Array.isArray(raw.feeds)) v = { schema: 1, feeds: raw.feeds.map(cleanFeed).filter((x): x is FeedConfig => !!x) };
+      if (raw && Array.isArray(raw.feeds)) {
+        const g = (raw.general ?? {}) as Partial<General>;
+        v = {
+          schema: 1,
+          general: { startWithWindows: g.startWithWindows === true, closeToTray: g.closeToTray !== false },
+          feeds: raw.feeds.map(cleanFeed).filter((x): x is FeedConfig => !!x),
+        };
+      }
     } catch { /* missing or unreadable: defaults */ }
-    this.value = v ?? { schema: 1, feeds: DEFAULT_FEEDS.map((f) => ({ ...f })) };
+    this.value = v ?? { schema: 1, general: { ...DEFAULT_GENERAL }, feeds: DEFAULT_FEEDS.map((f) => ({ ...f })) };
     if (!v) this.save();
   }
 
   get feeds(): readonly FeedConfig[] { return this.value.feeds; }
   feed(taskId: string): FeedConfig | undefined { return this.value.feeds.find((f) => f.taskId === taskId); }
+  get general(): Readonly<General> { return this.value.general; }
+
+  setGeneral(patch: Partial<Record<keyof General, unknown>>): void {
+    for (const k of ["startWithWindows", "closeToTray"] as const) if (typeof patch[k] === "boolean") this.value.general[k] = patch[k] as boolean;
+    this.save();
+  }
+
+  /** Edits one feed's schedule, grace period or retention; the task id and name are not editable here. */
+  setFeed(taskId: string, patch: Partial<Record<"schedule" | "graceHours" | "keep", unknown>>): boolean {
+    const f = this.feed(taskId);
+    if (!f) return false;
+    const next = cleanFeed({ ...f, ...patch } as Partial<FeedConfig>);
+    if (!next) return false;
+    if (patch.schedule !== undefined && next.schedule !== patch.schedule) return false;
+    if (patch.graceHours !== undefined && next.graceHours !== patch.graceHours) return false;
+    if (patch.keep !== undefined && next.keep !== patch.keep) return false;
+    Object.assign(f, next);
+    this.save();
+    return true;
+  }
 
   private save(): void {
     mkdirSync(dirname(this.file), { recursive: true });

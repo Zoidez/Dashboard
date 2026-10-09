@@ -1,0 +1,19 @@
+.tabs { display: flex; gap: 2px; padding: 8px 16px 0; border-bottom: 1px solid var(--border); background: var(--surface); }
+.tabs button { border-radius: 4px 4px 0 0; border-bottom: none; }
+.tabs button[aria-selected="true"] { border-color: var(--accent); font-weight: 600; }
+.panel { padding: 16px; overflow: auto; flex: 1; }
+.panel h2 { font-size: 15px; margin: 0 0 12px; }
+.row { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+.row label { min-width: 180px; }
+.hint { color: var(--muted); font-size: 12px; }
+table.list { border-collapse: collapse; width: 100%; }
+table.list th, table.list td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+table.list th { font-weight: 600; color: var(--muted); }
+.card-detail { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 10px 0; background: var(--surface); }
+.perm { margin: 6px 0; }
+.perm .reason { color: var(--muted); font-size: 12px; }
+.mark { font-size: 12px; padding: 1px 6px; border-radius: 3px; margin-left: 6px; border: 1px solid currentColor; }
+.mark.red { color: var(--err); }
+.mark.yellow { color: var(--warn); }
+.mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+select, input[type=number] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }

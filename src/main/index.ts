@@ -1,9 +1,9 @@
 /**
  * Dashboard main process (ARCHITECTURE.md, "Process model").
- * Skeleton scope: the window, one isolated view per approved card, the broker with network
- * blocking, channel identity and lazy grants. No generator, validator, canvas or feeds yet.
+ * The window and its grid, File > Options, the tray, one isolated view per approved card, the
+ * broker, the file helper and the feeds. Not yet: the generator, validator and approval canvas.
  */
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, protocol, session, shell as electronShell } from "electron";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AuditLog } from "./audit.js";
@@ -17,7 +17,10 @@ import { FileHelper } from "./services/files.js";
 import { OptionsStore } from "./options.js";
 import { FeedService } from "./reports/feeds.js";
 import { feedCard, feedCardId, installCard, reviewText, type Decide } from "./cards/install.js";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { LayoutStore } from "./layout.js";
+import { Shell } from "./ui/shell.js";
+import { parseApproval as parseCliApproval, verifyCli } from "./generator/cli-gate.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
 
@@ -62,24 +65,19 @@ let win: BrowserWindow | null = null;
 let host: CardHost | null = null;
 const lastLink = new Map<string, number>();
 
-const BAR = 28, TOP = 36, CELL_W = 340, CELL_H = 260, GAP = 12;
+let shell: Shell | null = null;
+const layoutStore = new LayoutStore(join(paths.data, "layout.json"));
 
-function layout(): void {
-  if (!win || !host) return;
-  const width = win.getContentBounds().width;
-  const cols = Math.max(1, Math.floor((width - GAP) / (CELL_W + GAP)));
-  const entries = [
-    ...[...host.cards.values()].map((c) => ({ cardId: c.cardId, name: c.name, state: c.status.state, message: c.notice ?? c.status.message, accent: c.accent, running: true, view: c.view })),
-    ...[...host.stopped.entries()].map(([cardId, s]) => ({ cardId, name: s.name, state: s.status.state, message: s.status.message, accent: "neutral", running: false, view: null })),
-  ].sort((a, b) => a.cardId.localeCompare(b.cardId));
-  const frames = entries.map((e, i) => {
-    const rect = { x: GAP + (i % cols) * (CELL_W + GAP), y: GAP + Math.floor(i / cols) * (CELL_H + GAP), width: CELL_W, height: CELL_H };
-    e.view?.setBounds({ x: rect.x + 1, y: TOP + rect.y + BAR, width: rect.width - 2, height: rect.height - BAR - 1 });
-    const { view: _v, ...rest } = e;
-    return { ...rest, rect };
-  });
-  const running = host.cards.size;
-  win.webContents.send("dashboard:state", { frames, summary: `${running} card${running === 1 ? "" : "s"} running` });
+/** The CLI gate's view of the installed generator build, for File > Options > Claude. */
+async function gateState(): Promise<{ ok: boolean; version?: string; reason?: string }> {
+  const approvalPath = join(paths.generator, "cli-approval.json");
+  let exePath = "";
+  try {
+    const a = parseCliApproval(readFileSync(approvalPath, "utf8"));
+    exePath = join(paths.vendor, "claude", `${a.version}-${a.sha256.slice(0, 12).toLowerCase()}`, "claude.exe");
+  } catch (e) { return { ok: false, reason: (e as NodeJS.ErrnoException).code === "ENOENT" ? "no CLI approval file: run the spike" : (e as Error).message }; }
+  const r = await verifyCli({ exePath, approvalPath });
+  return r.ok ? { ok: true, version: r.version } : { ok: false, reason: r.reason };
 }
 
 function createWindow(): BrowserWindow {
@@ -90,14 +88,13 @@ function createWindow(): BrowserWindow {
   ses.setPermissionCheckHandler(() => false);
 
   const w = new BrowserWindow({
-    width: 1100, height: 760, title: "Dashboard", show: false,
+    width: 1180, height: 800, title: "Dashboard", show: false, icon: join(distDir, "assets", "icon.png"),
     webPreferences: {
       preload: join(distDir, "preload", "dashboard.js"),
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, spellcheck: false, devTools,
     },
   });
   w.once("ready-to-show", () => w.show());
-  w.on("resize", layout);
   return w;
 }
 
@@ -134,12 +131,16 @@ async function installFeedCards(decide: Decide = askUser): Promise<Record<string
 function buildMenu(): void {
   // Our own menu: no Reload, no DevTools accelerators that could act on a card view.
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: "File", submenu: [{ label: "Quit", accelerator: "Ctrl+Q", click: () => app.quit() }] },
+    { label: "File", submenu: [
+      { label: "Options…", accelerator: "Ctrl+,", click: () => shell?.openOptions() },
+      { type: "separator" },
+      { label: "Quit", accelerator: "Ctrl+Q", click: () => app.quit() },
+    ] },
     { label: "Cards", submenu: [
       { label: "Install watch-feed cards…", click: () => void installFeedCards() },
       { label: "Rescan cards", click: () => void host?.startAll() },
     ] },
-    { label: "Help", submenu: [{ label: "Open instance folder", click: () => void shell.openPath(paths.root) }] },
+    { label: "Help", submenu: [{ label: "Open instance folder", click: () => void electronShell.openPath(paths.root) }] },
   ]));
 }
 
@@ -158,7 +159,7 @@ app.whenReady().then(async () => {
         const now = Date.now();
         if (now - (lastLink.get(id) ?? 0) < 2000) throw new Error("links can be opened at most every 2 seconds");
         lastLink.set(id, now);
-        await shell.openExternal(url.href);
+        await electronShell.openExternal(url.href);
       },
       confirm: async (id, message, opts) => {
         const name = host?.cards.get(id)?.name ?? id;
@@ -188,19 +189,27 @@ app.whenReady().then(async () => {
     preloadPath: join(distDir, "preload", "card.js"),
     window: w,
     dashboardPid: () => w.webContents.getOSProcessId(),
-    onChange: layout,
+    onChange: () => shell?.push(),
     devTools,
   }, approvals, broker, audit);
 
-  // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards };
+  shell = new Shell({
+    win: w, host: () => host, approvals, audit, options, feeds, layout: layoutStore, gate: gateState,
+    distDir, reportsDir: paths.reports, devTools,
+    setLoginItem: (open) => app.setLoginItemSettings({ openAtLogin: open, path: process.execPath }),
+  });
+  shell.createTray(join(distDir, "assets", "icon.png"));
+  if (options.general.startWithWindows) shell.applyLoginItem();
 
-  ipcMain.on("dashboard:ready", (e) => { if (e.sender === w.webContents) layout(); });
+  // Main-process-only handle for the automated tests (Playwright evaluates in this process).
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w };
+
   await w.loadFile(join(distDir, "renderer", "index.html"));
   await feeds.start();
   await host.startAll();
-  layout();
+  shell.push();
 });
 
-app.on("before-quit", () => { host?.stopAll("the Dashboard quit"); files.stop(); feeds.stop(); });
+app.on("before-quit", () => { host?.stopAll("the Dashboard quit"); files.stop(); feeds.stop(); shell?.destroyTray(); });
 app.on("window-all-closed", () => app.quit());
+app.on("second-instance", () => shell?.showWindow());

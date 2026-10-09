@@ -13,7 +13,7 @@
  * Any end of the view (Stop, Revoke, crash, reload, navigation, close, quit) ends the broker session.
  */
 import { app, ipcMain, MessageChannelMain, nativeTheme, WebContentsView, type BaseWindow, type WebContents, type Session } from "electron";
-import { promises as fsp, readFileSync } from "node:fs";
+import { promises as fsp, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, posix } from "node:path";
 import type { AuditLog } from "../audit.js";
 import type { Broker, CardSession } from "../broker/broker.js";
@@ -78,6 +78,10 @@ export class CardHost {
   private readonly runtimeJs: Buffer;
   private readonly workerRuntimeJs: Buffer;
   private watchdog: NodeJS.Timeout | null = null;
+  private readonly starting = new Set<string>();
+  private readonly sizes = new Map<string, { w: number; h: number }>();
+  private dirWatcher: FSWatcher | null = null;
+  private rescanTimer: NodeJS.Timeout | null = null;
   private readonly hot = new Map<string, number>();
 
   constructor(private readonly opts: CardHostOptions, private readonly approvals: ApprovalStore, private readonly broker: Broker, private readonly audit: AuditLog) {
@@ -91,8 +95,60 @@ export class CardHost {
     let ids: string[] = [];
     try { ids = (await fsp.readdir(this.opts.cardsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name); }
     catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
-    for (const id of ids.sort()) await this.start(id);
+    for (const id of ids.sort()) if (!this.cards.has(id) && this.stopped.get(id)?.status.state !== "stopped") await this.start(id);
     this.startWatchdog();
+    this.watchCardsFolder();
+  }
+
+  /** Hot-loading: a newly approved card folder starts without a restart; a removed folder stops its card. */
+  private watchCardsFolder(): void {
+    if (this.dirWatcher) return;
+    try {
+      this.dirWatcher = watch(this.opts.cardsDir, { persistent: false }, () => {
+        if (this.rescanTimer) clearTimeout(this.rescanTimer);
+        this.rescanTimer = setTimeout(() => void this.rescanFolder(), 500);
+      });
+      this.dirWatcher.on("error", () => undefined);
+    } catch { /* the folder is created at start; Rescan still works */ }
+  }
+
+  private async rescanFolder(): Promise<void> {
+    let ids: string[] = [];
+    try { ids = (await fsp.readdir(this.opts.cardsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return; }
+    for (const id of [...this.cards.keys()]) if (!ids.includes(id)) this.stop(id, "its folder was removed", "stopped");
+    for (const id of [...this.stopped.keys()]) if (!ids.includes(id)) { this.stopped.delete(id); this.opts.onChange(); }
+    for (const id of ids) if (CARD_ID_RE.test(id) && !this.cards.has(id) && !this.stopped.has(id)) await this.start(id);
+  }
+
+  /** The cell size a card starts with (manifest defaultSize). */
+  defaultSize(cardId: string): { w: number; h: number } | undefined {
+    return this.sizes.get(cardId);
+  }
+
+  /** Can the user start this stopped card again (still approved, not refused)? */
+  startable(cardId: string): boolean {
+    const s = this.stopped.get(cardId);
+    if (!s || this.cards.has(cardId) || s.status.state === "refused") return false;
+    const a = this.approvals.get(cardId);
+    return !!a && !a.revoked;
+  }
+
+  /** Places each running card's view at the rectangle the grid page reported (validated, clamped). */
+  applyRects(rects: unknown): void {
+    if (!Array.isArray(rects)) return;
+    const { width: W, height: H } = this.opts.window.getContentBounds();
+    for (const r of rects.slice(0, 500) as Array<Record<string, unknown>>) {
+      const card = typeof r?.cardId === "string" ? this.cards.get(r.cardId) : undefined;
+      if (!card || card.stopping) continue;
+      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : NaN);
+      const x = n(r.x), y = n(r.y), w = n(r.width), h = n(r.height);
+      if ([x, y, w, h].some(Number.isNaN) || r.visible !== true || w < 20 || h < 20 || x < 0 || y < 0 || x + w > W || y + h > H) {
+        card.view.setVisible(false);
+        continue;
+      }
+      card.view.setBounds({ x, y, width: w, height: h });
+      card.view.setVisible(true);
+    }
   }
 
   private refuse(cardId: string, name: string, reason: string): void {
@@ -103,7 +159,12 @@ export class CardHost {
 
   async start(cardId: string): Promise<boolean> {
     if (!CARD_ID_RE.test(cardId)) { this.audit.write("_host", "card-refused", `invalid card folder name: ${cardId.slice(0, 60)}`); return false; }
-    if (this.cards.has(cardId)) return true;
+    if (this.cards.has(cardId) || this.starting.has(cardId)) return true;
+    this.starting.add(cardId);
+    try { return await this.startInner(cardId); } finally { this.starting.delete(cardId); }
+  }
+
+  private async startInner(cardId: string): Promise<boolean> {
     const dir = join(this.opts.cardsDir, cardId);
     let approval: ApprovalRecord | null;
     try { approval = await this.approvals.load(cardId); }
@@ -124,6 +185,7 @@ export class CardHost {
     try { manifest = JSON.parse(await fsp.readFile(join(dir, "manifest.json"), "utf8")) as Manifest; }
     catch { this.refuse(cardId, cardId, "manifest.json is not valid JSON"); return false; }
     if (manifest.id !== cardId) { this.refuse(cardId, cardId, "manifest id does not match its folder"); return false; }
+    if (manifest.defaultSize) this.sizes.set(cardId, manifest.defaultSize);
 
     let ses: Session;
     try { ses = await createCardSession(cardId, this.audit); }
@@ -153,6 +215,7 @@ export class CardHost {
       },
     });
     view.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    view.setVisible(false);                                  // shown once the grid reports where its frame is
 
     let resolveChecked!: () => void, rejectChecked!: (e: Error) => void;
     const card: RunningCard = {
@@ -332,6 +395,8 @@ export class CardHost {
   stopAll(reason: string): void {
     for (const id of [...this.cards.keys()]) this.stop(id, reason);
     if (this.watchdog) clearInterval(this.watchdog);
+    this.dirWatcher?.close();
+    if (this.rescanTimer) clearTimeout(this.rescanTimer);
   }
 
   setStatus(cardId: string, s: Omit<CardStatus, "state"> & { state: string }): void {

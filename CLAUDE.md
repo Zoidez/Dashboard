@@ -33,7 +33,8 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 - File access done (`src/filehelper`, the file check protocol, A4 incl. 5-minute races: `npm run test:race`).
 - Watch feeds done (reports, feed service, safe Markdown, reference card, interim approval dialog).
 - Background workers done (worker.js as a Web Worker, ticks with watchdog).
-- **Next:** the React grid and Options, tray and start with Windows, then the generator pipeline.
+- React grid, Options, tray, start with Windows, hot-loading done.
+- **Next:** the generator pipeline (New card, validator, approval canvas), then the packaged Dashboard.exe.
 
 ## Working in this repo
 - Use the project's Node: prepend `tools\node` to PATH (Node 24.21.0; the system Node 20 is too old for Electron 44).
