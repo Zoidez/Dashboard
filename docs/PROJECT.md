@@ -61,12 +61,12 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 ### User
 - [x] Project directory set.
 - [x] Report-writing step (with severity) applied to all three task prompts; re-signed for the computer.
-- [ ] **Attach each task to its own `Build\ClaudeExchange\reports\<task-id>\` folder in the desktop app.** Without it reports cannot be written.
+- [x] **Attach each task to its own `Build\ClaudeExchange\reports\<task-id>\` folder in the desktop app.** Done by the user 2026-10-09; confirmed only when the first report file lands.
 - [x] Paid "extra usage" is off.
 - [x] UI framework: React.
 - [x] **Run `spikes\spike1-cli.ps1`** on CLI 2.1.293 (runs 2026-10-08 05:27 and 19:08; Process Monitor analysis of the 19:08 run). Results: see "Spike 1 results".
 - [x] Generator boundary for v1: **Option A** (`--restricted`, no OS isolation), decided 2026-10-09.
-- [ ] **Run spike v3.8 on CLI 2.1.293** (v3.7's run on 2026-10-08 20:30 was blocked by a harness bug: it rejected a helper command line Windows logged with a double space; v3.8 fixes it and ignores 3.7 runs). Repeat if it ends INCOMPLETE; passes add up.
+- [x] **Run spike v3.8 on CLI 2.1.293**: run 2026-10-08 22:21 (local) APPROVED, 45 passed, 0 failed, 0 inconclusive. The CLI gate accepts the installed build (version + SHA-256 checked).
 ### Claude: to implement for the CLI test button
 - [ ] Spike: tested list `cli-approvals.json` (one record per build) instead of the single `cli-approval.json`; install candidates into `data/vendor/claude/<version>-<sha12>/` (done in v3.8, 2026-10-09); take the build to test as a parameter.
 - [ ] CLI gate: look the installed build up in the list; return a reason code (untested, incomplete, blocked, hash-mismatch, unreadable) instead of text only, so the card picks the state.
