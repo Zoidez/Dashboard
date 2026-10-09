@@ -25,6 +25,7 @@ function env(permissions: ApprovalRecord["permissions"]) {
     storage: { get: async () => undefined, set: async () => {}, remove: async () => {} },
     files: { call: async () => null, watch: async () => () => undefined },
     reports: { isFeed: () => true, state: () => ({ latest: null, offline: null }), history: () => [], onChange: () => () => undefined },
+    tickDone: () => undefined,
     stopCard: (id, reason) => stopped.push(`${id}: ${reason}`),
   };
   const broker = new Broker(approvals, audit, services, { instanceRoot: join(dir, "Build"), resolvePath: (p) => p, maxDenials: 3 });

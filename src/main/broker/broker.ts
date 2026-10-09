@@ -90,6 +90,8 @@ export interface HostServices {
     call(op: string, args: unknown[], ctx: { instanceRoot: string; scope: { path: string; recursive: boolean } }): Promise<unknown>;
     watch(path: string, ctx: { instanceRoot: string; scope: { path: string; recursive: boolean } }, onEvent: (ev: unknown) => void): Promise<() => void>;
   };
+  /** worker.js finished the tick with this sequence number. */
+  tickDone(cardId: string, seq: number): void;
   /** The broker asks the host to stop a card (repeated denials, rate abuse, revoked approval). */
   stopCard(cardId: string, reason: string): void;
 }
@@ -256,6 +258,7 @@ export class Broker {
     const ui = this.services.ui;
     switch (m) {
       case "card.config": return this.services.config(s.cardId);
+      case "card.tickDone": this.services.tickDone(s.cardId, typeof a[0] === "number" ? a[0] : -1); return null;
 
       case "ui.setStatus": {
         const st = a[0] as Record<string, unknown> | undefined;

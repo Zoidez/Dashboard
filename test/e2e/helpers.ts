@@ -28,17 +28,22 @@ export interface CardSpec {
   approve?: boolean;
   /** Files under assets/, e.g. { "pic.png": Buffer }. */
   assets?: Record<string, Buffer>;
+  /** worker.js source; sets manifest.worker = true. */
+  worker?: string;
+  /** Extra manifest fields (e.g. schedule). */
+  manifest?: Record<string, unknown>;
 }
 
 export function addCard(instance: string, spec: CardSpec): void {
   const dir = join(instance, "data", "cards", spec.id);
   mkdirSync(dir, { recursive: true });
-  const manifest = { id: spec.id, name: spec.name ?? spec.id, version: "1.0.0", apiVersion: 0, permissions: spec.permissions ?? [] };
+  const manifest = { id: spec.id, name: spec.name ?? spec.id, version: "1.0.0", apiVersion: 0, permissions: spec.permissions ?? [], ...(spec.worker ? { worker: true } : {}), ...(spec.manifest ?? {}) };
   const files: Record<string, string | Buffer> = {
     "manifest.json": JSON.stringify(manifest, null, 2),
     "ui.js": spec.ui,
     "DEVLOG.md": `# ${spec.id}\n\n- test fixture\n`,
   };
+  if (spec.worker) files["worker.js"] = spec.worker;
   for (const [name, data] of Object.entries(spec.assets ?? {})) files[`assets/${name}`] = data;
   if (spec.assets) mkdirSync(join(dir, "assets"), { recursive: true });
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, ...name.split("/")), text);

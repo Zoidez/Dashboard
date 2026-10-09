@@ -4,18 +4,12 @@
  * this code holds no privilege. Card code could reach the port anyway (it shares this world), and
  * that is fine: the port only carries this card's own identity, and the broker checks everything.
  */
-import type { HostApi, HostError as HostErrorT, ErrorCode } from "../../spec/host-api.js";
+import type { HostApi, ErrorCode } from "../../spec/host-api.js";
+import { buildApi, hostError } from "./api.js";
 import { parse, type Block, type Inline } from "../shared/markdown.js";
 
 type Ret = { t: "ret"; id: number; ok: true; v: unknown } | { t: "ret"; id: number; ok: false; e: { code: ErrorCode; message: string } };
 type Evt = { t: "evt"; ch: string; v: unknown };
-
-function hostError(code: ErrorCode, message: string): HostErrorT {
-  const e = new Error(message) as HostErrorT;
-  e.name = "HostError";
-  (e as { code: ErrorCode }).code = code;
-  return e;
-}
 
 /** Builds DOM from the safe Markdown tree. Content only ever becomes text nodes; no attribute comes from it except a link's title. */
 function renderMarkdown(blocks: Block[], open: (href: string) => void): DocumentFragment {
@@ -92,6 +86,7 @@ async function main(): Promise<void> {
   let nextId = 1;
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
   const listeners = new Map<string, Set<(v: unknown) => void>>();
+  let worker: Worker | null = null;
 
   port.onmessage = (ev: MessageEvent) => {
     const msg = ev.data as Ret | Evt;
@@ -102,6 +97,7 @@ async function main(): Promise<void> {
       if (msg.ok) p.resolve(msg.v); else p.reject(hostError(msg.e.code, msg.e.message));
     } else if (msg?.t === "evt") {
       for (const cb of listeners.get(msg.ch) ?? []) { try { cb(msg.v); } catch (e) { console.error(e); } }
+      worker?.postMessage({ k: "evt", ch: msg.ch, v: msg.v });     // the worker filters what it subscribed to
     }
   };
 
@@ -112,99 +108,47 @@ async function main(): Promise<void> {
   });
   const fire = (m: string, ...a: unknown[]): void => { call(m, ...a).catch(() => undefined); };
 
-  const reserved = (ns: string) => new Proxy(Object.freeze({}), {
-    get: (_t, k) => (typeof k === "string" ? (..._args: unknown[]) => call(`${ns}.${k}`) : undefined),
-  });
-
   const config = (await call("card.config")) as Record<string, string | number | boolean>;
   const cardId = location.host;
+  const fromWorker = new Set<(m: unknown) => void>();
 
-  const api: HostApi = {
-    card: {
-      cardId,
-      apiVersion: 0,
-      config: Object.freeze({ ...config }),
-      onConfigChange: () => () => undefined,   // settings panel comes with the grid UI
-    },
-    fs: {
-      readText: (p) => call("fs.readText", p),
-      readBytes: (p) => call("fs.readBytes", p),
-      list: (d) => call("fs.list", d),
-      stat: (p) => call("fs.stat", p),
-      writeText: (p, t) => call("fs.writeText", p, t),
-      writeBytes: (p, d) => call("fs.writeBytes", p, d),
-      appendText: (p, t) => call("fs.appendText", p, t),
-      mkdir: (d) => call("fs.mkdir", d),
-      remove: (p) => call("fs.remove", p),
-      watch: async (d, onChange) => {
-        const id = (await call("fs.watch", d)) as number;
-        const ch = `fs.watch:${id}`;
-        const cb = (v: unknown) => { const e = v as { event?: "add" | "change" | "unlink"; path?: string }; if (e?.event && e.path) onChange(e.event, e.path); };
-        if (!listeners.has(ch)) listeners.set(ch, new Set());
-        listeners.get(ch)!.add(cb);
-        return () => { listeners.delete(ch); fire("fs.unwatch", id); };
-      },
-    },
-    net: {
-      request: async (req) => {
-        const r = (await call("net.request", { ...req })) as { status: number; headers: Record<string, string>; body: Uint8Array };
-        const bytes = r.body;
-        return Object.freeze({
-          status: r.status,
-          headers: Object.freeze({ ...r.headers }),
-          text: async () => new TextDecoder().decode(bytes),
-          json: async <T>() => JSON.parse(new TextDecoder().decode(bytes)) as T,
-          bytes: async () => bytes.slice(),
-        });
-      },
-    },
-    process: reserved("process") as HostApi["process"],
-    sysinfo: {
-      cpu: () => call("sysinfo.cpu"),
-      memory: () => call("sysinfo.memory"),
-      disks: () => call("sysinfo.disks"),
-      network: () => call("sysinfo.network"),
-      os: () => call("sysinfo.os"),
-      battery: () => call("sysinfo.battery"),
-      gpus: () => call("sysinfo.gpus"),
-      processes: () => call("sysinfo.processes"),
-    },
-    reports: {
-      state: (t) => call("reports.state", t),
-      history: (t, n) => call("reports.history", t, n),
-      onChange: (t, cb) => {
-        const ch = `reports:${t}`;
-        if (!listeners.has(ch)) { listeners.set(ch, new Set()); fire("reports.watch", t); }
-        const fn = (v: unknown) => cb(v as never);
-        listeners.get(ch)!.add(fn);
-        return () => { const set = listeners.get(ch); set?.delete(fn); if (set && set.size === 0) { listeners.delete(ch); fire("reports.unwatch", t); } };
-      },
-    },
-    storage: {
-      get: (k) => call("storage.get", k),
-      set: (k, v) => call("storage.set", k, v),
-      remove: (k) => call("storage.remove", k),
-    },
-    ui: {
-      markdown: (src) => renderMarkdown(parse(String(src)), (href) => {
-        call("ui.openLink", href).catch((e: Error) => fire("ui.notify", `Could not open the link: ${e.message}`, "warning"));
-      }),
-      openLink: (url) => call("ui.openLink", url),
-      confirm: (message, opts) => call("ui.confirm", message, opts ?? {}),
-      notify: (message, level) => fire("ui.notify", message, level ?? "info"),
-      setStatus: (status) => fire("ui.setStatus", { ...status }),
-      setAccent: (accent) => fire("ui.setAccent", accent),
-      theme: () => ({ mode: document.documentElement.dataset.theme === "dark" ? "dark" : "light" }),
-    },
-    messaging: {
-      send: () => undefined,                    // worker.js is not supported in this build yet
-      onMessage: () => () => undefined,
-    },
-    bus: reserved("bus") as HostApi["bus"],
-    claude: reserved("claude") as HostApi["claude"],
+  const ui: HostApi["ui"] = {
+    markdown: (src) => renderMarkdown(parse(String(src)), (href) => {
+      call("ui.openLink", href).catch((e: Error) => fire("ui.notify", `Could not open the link: ${e.message}`, "warning"));
+    }),
+    openLink: (url) => call("ui.openLink", url),
+    confirm: (message, opts) => call("ui.confirm", message, opts ?? {}),
+    notify: (message, level) => fire("ui.notify", message, level ?? "info"),
+    setStatus: (status) => fire("ui.setStatus", { ...status }),
+    setAccent: (accent) => fire("ui.setAccent", accent),
+    theme: () => ({ mode: document.documentElement.dataset.theme === "dark" ? "dark" : "light" }),
   };
-  for (const v of Object.values(api)) Object.freeze(v);
-  Object.freeze(api);
+  const api = buildApi({ call, listeners }, {
+    cardId, config, ui,
+    messaging: {
+      send: (m) => worker?.postMessage({ k: "msg", v: m }),
+      onMessage: (cb) => { fromWorker.add(cb); return () => fromWorker.delete(cb); },
+    },
+  });
+
+  // worker.js runs as a Web Worker in this same view (same process, same sandbox, same CSP). Its
+  // calls are relayed over this card's port, so it has this card's identity and nothing more.
+  if (document.documentElement.dataset.worker === "1") {
+    worker = new Worker(new URL("/__host/worker-runtime.js", location.href), { type: "module", name: "card-worker" });
+    worker.onmessage = (ev: MessageEvent) => {
+      const m = ev.data as { k: string; id?: number; m?: string; a?: unknown[]; v?: unknown };
+      if (m?.k === "msg") { for (const cb of fromWorker) { try { cb(m.v); } catch (e) { console.error(e); } } return; }
+      if (m?.k !== "call" || typeof m.id !== "number" || typeof m.m !== "string" || !Array.isArray(m.a)) return;
+      const id = m.id;
+      if (m.m.startsWith("ui.")) { worker!.postMessage({ k: "ret", id, ok: false, e: { code: "InvalidArgument", message: "api.ui is only available in ui.js" } }); return; }
+      call(m.m, ...m.a).then(
+        (v) => worker!.postMessage({ k: "ret", id, ok: true, v }),
+        (e: { code?: ErrorCode; message?: string }) => worker!.postMessage({ k: "ret", id, ok: false, e: { code: e?.code ?? "IOError", message: e?.message ?? String(e) } }),
+      );
+    };
+    worker.onerror = (e) => { e.preventDefault(); ui.setStatus({ state: "error", message: `worker.js failed: ${e.message}` }); };
+    worker.postMessage({ k: "init", cardId, config });
+  }
 
   const el = document.getElementById("card")!;
   try {
@@ -213,7 +157,7 @@ async function main(): Promise<void> {
     if (typeof mod.mount !== "function") throw new Error("ui.js does not export mount(el, api)");
     await mod.mount(el, api);
   } catch (e) {
-    api.ui.setStatus({ state: "error", message: `The card failed to start: ${(e as Error)?.message ?? String(e)}` });
+    ui.setStatus({ state: "error", message: `The card failed to start: ${(e as Error)?.message ?? String(e)}` });
   }
 }
 

@@ -176,6 +176,7 @@ app.whenReady().then(async () => {
     },
     files: { call: (op, args, ctx) => files.call(op, args, ctx), watch: (p, ctx, cb) => files.watch(p, ctx, cb) },
     reports: { isFeed: (t) => feeds.isFeed(t), state: (t) => feeds.state(t), history: (t, n) => feeds.historyOf(t, n), onChange: (t, cb) => feeds.onChange(t, cb) },
+    tickDone: (id, seq) => host?.tickDone(id, seq),
     stopCard: (id, reason) => setImmediate(() => host?.stop(id, reason, "error")),
   }, { instanceRoot: paths.root, resolvePath: (p) => (p.startsWith("./") ? resolve(paths.root, p) : resolve(p)) });
 
@@ -183,6 +184,7 @@ app.whenReady().then(async () => {
     cardsDir: paths.cards,
     configDir: paths.config,
     runtimePath: join(distDir, "card-runtime", "runtime.js"),
+    workerRuntimePath: join(distDir, "card-runtime", "worker-runtime.js"),
     preloadPath: join(distDir, "preload", "card.js"),
     window: w,
     dashboardPid: () => w.webContents.getOSProcessId(),

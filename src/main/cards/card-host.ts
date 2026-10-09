@@ -27,6 +27,8 @@ interface Manifest {
   id: string;
   name: string;
   version: string;
+  worker?: boolean;
+  schedule?: { intervalSeconds: number };
   defaultSize?: { w: number; h: number };
   configSchema?: { properties?: Record<string, { default?: unknown }> };
 }
@@ -47,6 +49,10 @@ export interface RunningCard {
   notice?: string;
   accent: string;
   stopping: boolean;
+  /** Background ticks (manifest.schedule): the timer, and the tick in flight (watchdog). */
+  tickTimer?: NodeJS.Timeout;
+  tickSeq: number;
+  tickPending?: { seq: number; watchdog: NodeJS.Timeout };
 }
 
 export interface CardHostOptions {
@@ -59,7 +65,8 @@ export interface CardHostOptions {
   dashboardPid: () => number;
   onChange: () => void;
   devTools: boolean;
-  limits?: { memoryBytes?: number; cpuPercent?: number; cpuSeconds?: number };
+  limits?: { memoryBytes?: number; cpuPercent?: number; cpuSeconds?: number; tickTimeoutMs?: number };
+  workerRuntimePath: string;
 }
 
 const MIME: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".woff2": "font/woff2" };
@@ -69,11 +76,13 @@ export class CardHost {
   /** Cards that were refused or stopped, with the reason (shown on the grid). */
   readonly stopped = new Map<string, { name: string; status: CardStatus }>();
   private readonly runtimeJs: Buffer;
+  private readonly workerRuntimeJs: Buffer;
   private watchdog: NodeJS.Timeout | null = null;
   private readonly hot = new Map<string, number>();
 
   constructor(private readonly opts: CardHostOptions, private readonly approvals: ApprovalStore, private readonly broker: Broker, private readonly audit: AuditLog) {
     this.runtimeJs = readFileSync(opts.runtimePath);
+    this.workerRuntimeJs = readFileSync(opts.workerRuntimePath);
     ipcMain.on("card:hello", (e) => this.onHello(e.sender, e.senderFrame?.url ?? ""));
   }
 
@@ -149,7 +158,7 @@ export class CardHost {
     const card: RunningCard = {
       cardId, name: manifest.name, manifest, approval, view, session: ses, broker: null, pid: null, rights: null,
       processChecked: new Promise<void>((res, rej) => { resolveChecked = res; rejectChecked = rej; }),
-      status: { state: "starting" }, accent: "neutral", stopping: false,
+      status: { state: "starting" }, accent: "neutral", stopping: false, tickSeq: 0,
     };
     card.processChecked.catch(() => undefined);
     this.cards.set(cardId, card);
@@ -202,7 +211,7 @@ export class CardHost {
     const headers = (type: string) => ({ "content-type": type, "content-security-policy": CARD_CSP, "x-content-type-options": "nosniff", "cache-control": "no-store", "cross-origin-opener-policy": "same-origin", "cross-origin-resource-policy": "same-origin" });
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      return new Response(indexHtml(nativeTheme.shouldUseDarkColors), { headers: headers("text/html; charset=utf-8") });
+      return new Response(indexHtml(nativeTheme.shouldUseDarkColors, this.hasWorker(card)), { headers: headers("text/html; charset=utf-8") });
     }
 
     // No card code before the OS process check has passed.
@@ -210,6 +219,10 @@ export class CardHost {
     try { await card.processChecked; } catch { return notFound(); }
 
     if (url.pathname === "/__host/runtime.js") return new Response(new Uint8Array(this.runtimeJs), { headers: headers(MIME[".js"]) });
+    if (url.pathname === "/__host/worker-runtime.js") {
+      if (!this.hasWorker(card)) return notFound();
+      return new Response(new Uint8Array(this.workerRuntimeJs), { headers: headers(MIME[".js"]) });
+    }
 
     const rel = decodeURIComponent(url.pathname.slice(1));
     if (rel.includes("\\") || rel.includes("\0") || posix.normalize(rel) !== rel || !isCardFilePath(rel) || rel === "manifest.json" || rel === "DEVLOG.md") return notFound();
@@ -241,6 +254,8 @@ export class CardHost {
       port1.start();
       sender.postMessage("card:port", null, [port2]);
       this.setStatus(card.cardId, { state: "loading" });
+      const every = card.manifest.schedule?.intervalSeconds;
+      if (this.hasWorker(card) && typeof every === "number" && every >= 60) card.tickTimer = setInterval(() => this.tick(card.cardId), every * 1000);
     }, () => undefined);
   }
 
@@ -267,6 +282,8 @@ export class CardHost {
     const card = this.cards.get(cardId);
     if (!card || card.stopping) return;
     card.stopping = true;
+    if (card.tickTimer) clearInterval(card.tickTimer);
+    if (card.tickPending) clearTimeout(card.tickPending.watchdog);
     if (card.broker) this.broker.endSession(card.broker, reason);
     this.cards.delete(cardId);
     this.stopped.set(cardId, { name: card.name, status: { state, message: reason } });
@@ -275,6 +292,35 @@ export class CardHost {
     try { if (!card.view.webContents.isDestroyed()) card.view.webContents.close({ waitForBeforeUnload: false }); } catch { /* already closed */ }
     try { void card.session.protocol.unhandle("card"); } catch { /* session gone */ }
     this.opts.onChange();
+  }
+
+  private hasWorker(card: RunningCard): boolean {
+    return card.manifest.worker === true && !!card.approval.files["worker.js"];
+  }
+
+  /** Sends one tick to the card's worker. A tick still running after the limit (60 s) stops the card. */
+  tick(cardId: string): boolean {
+    const card = this.cards.get(cardId);
+    if (!card || !card.broker || card.stopping || !this.hasWorker(card)) return false;
+    if (card.tickPending) return false;                       // the previous tick has not finished: skip
+    const seq = ++card.tickSeq;
+    const limit = this.opts.limits?.tickTimeoutMs ?? 60_000;
+    card.tickPending = {
+      seq,
+      watchdog: setTimeout(() => {
+        this.audit.write(cardId, "card-flagged", `tick ${seq} ran longer than ${Math.round(limit / 1000)} s`);
+        this.stop(cardId, `its background tick ran longer than ${Math.round(limit / 1000)} seconds`, "error");
+      }, limit),
+    };
+    this.broker.emit(card.broker, "card:tick", seq);
+    return true;
+  }
+
+  tickDone(cardId: string, seq: number): void {
+    const card = this.cards.get(cardId);
+    if (!card?.tickPending || card.tickPending.seq !== seq) return;
+    clearTimeout(card.tickPending.watchdog);
+    card.tickPending = undefined;
   }
 
   /** Revoke: removes the approval (written to disk first in memory), which also stops the card. */
@@ -353,9 +399,9 @@ export class CardHost {
   }
 }
 
-function indexHtml(dark: boolean): string {
+function indexHtml(dark: boolean, worker: boolean): string {
   return `<!doctype html>
-<html data-theme="${dark ? "dark" : "light"}"><head><meta charset="utf-8">
+<html data-theme="${dark ? "dark" : "light"}"${worker ? ' data-worker="1"' : ""}><head><meta charset="utf-8">
 <style>
 :root{color-scheme:light;--bg:#ffffff;--fg:#1d2330;--muted:#5b6475;--border:#d8dce3;--link:#0b57c2;
 --sev-none-bg:#ffffff;--sev-none-fg:#1d2330;--sev-low-bg:#e3e9f0;--sev-low-fg:#1f2d3d;--sev-medium-bg:#fff1cc;--sev-medium-fg:#4a3500;

@@ -86,7 +86,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 - [x] Native file helper and `api.fs` (read, list, stat, write, append, mkdir, watch, delete to the Recycle Bin) with the file check protocol; A4 passes (unit, e2e, and two 5-minute races). Done 2026-10-09.
 - [ ] ADS detection (FindFirstStreamW) for VALIDATOR V0 (staging check, with the validator).
 - [x] Reports + watch-feed preset (report validation, offline banner incl. overdue, retention 30) and the safe Markdown renderer; the three feed cards install from **Cards > Install watch-feed cards…** (interim approval dialog). E1-E4 pass. Done 2026-10-09.
-- [ ] `worker.js` as a Web Worker in the card view (messaging over the same port).
+- [x] `worker.js` as a Web Worker in the card view: calls relayed over the card's port (no `api.ui`), `api.messaging` to ui.js, host-driven `tick()` with a 60 s watchdog. Done 2026-10-09.
 - [ ] React grid, File > Options, tray and start with Windows.
 - [ ] Portable packaged build into `Build/app/` + `Build/Dashboard.lnk` setup step; decide Electron fuses vs. testing the packaged build (see Open questions).
 
@@ -142,6 +142,8 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-09 | Report folders watched with Node's `fs.watch` plus a 750 ms settle window and a minute rescan, not chokidar | One dependency fewer; write-finish detection and overdue checks need only this. |
 | 2026-10-09 | Markdown links only for **https** (the only kind `api.ui.openLink` opens); images become their alt text; raw HTML stays literal text | Report content is untrusted (PRESETS.md display rule 4). A report source with an http URL is shown but cannot be opened. |
 | 2026-10-09 | Feed card ids are derived from the task name (`feed-daily-kessler-syndrome-watch`); the task id is a config default the card reads | One reference card file for all feeds; the permission names the task id. |
+| 2026-10-09 | **worker.js**: started by the page runtime as a module Web Worker in the same view; its calls are relayed over the card's own port; `ui.*` from the worker is refused; host events are forwarded to it | Same process, sandbox, CSP and identity as ui.js; nothing new to secure. |
+| 2026-10-09 | Ticks: the host sends one tick per `schedule.intervalSeconds`; while a tick is running the next is skipped; a tick running longer than 60 s stops and flags the card | spec/host-api.d.ts ("must finish within 60 s"); skipping avoids piling up. |
 | 2026-10-09 | **"Test the new CLI version" button** on the Claude card when the installed CLI build is not on the tested list (or its testing is incomplete); runs the spike on a click; candidates install side by side and never replace the active approved build; switching builds is a user click | User requirement. Design details by Claude (ARCHITECTURE.md "Claude card: CLI test states"). |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)
@@ -168,7 +170,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 - [ ] CPU watchdog (90 % for 30 s) has no automated test yet; memory, message size and rate do.
 
 ## Status
-Architecture revised after two external reviews; DLL/executable capabilities removed from v1; spike v3 written for Option A and on the PC. Spike 1 run on CLI 2.1.293: the `--restricted` lockdown held everywhere it was exercised (see "Spike 1 results"). Generator boundary decided: Option A. Waiting on the user: attach task folders. CLI gate written and tested (`src/main/generator/cli-gate.ts`, 10 tests, now on Windows with a compiled fake CLI). **Runtime skeleton built (2026-10-09)**: Electron 44 window, one sandboxed `WebContentsView` per approved card, broker with channel identity, lazy grants, network client with DNS pinning and redirect checks, version-bound approvals, audit/Stop/Revoke, memory/CPU/rate/size limits, and the OS-rights check. Verified on this PC: card processes run at **Untrusted** integrity with a restricted token, each in its own process. File access (A4) and the watch feeds (E1-E4) built 2026-10-09. Next for Claude: background workers, then the React grid and Options.
+Architecture revised after two external reviews; DLL/executable capabilities removed from v1; spike v3 written for Option A and on the PC. Spike 1 run on CLI 2.1.293: the `--restricted` lockdown held everywhere it was exercised (see "Spike 1 results"). Generator boundary decided: Option A. Waiting on the user: attach task folders. CLI gate written and tested (`src/main/generator/cli-gate.ts`, 10 tests, now on Windows with a compiled fake CLI). **Runtime skeleton built (2026-10-09)**: Electron 44 window, one sandboxed `WebContentsView` per approved card, broker with channel identity, lazy grants, network client with DNS pinning and redirect checks, version-bound approvals, audit/Stop/Revoke, memory/CPU/rate/size limits, and the OS-rights check. Verified on this PC: card processes run at **Untrusted** integrity with a restricted token, each in its own process. File access (A4) and the watch feeds (E1-E4) built 2026-10-09. Workers built the same day. Next for Claude: the React grid, Options, tray and start with Windows.
 
 ## Working rules for Claude on this project
 - User wants blunt correction. Attack weak ideas directly; don't soften.

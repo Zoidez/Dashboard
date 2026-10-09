@@ -23,7 +23,7 @@ const MAX_KEYS = 256;
 
 /** Methods the broker implements in apiVersion 0. */
 export const METHODS: ReadonlySet<string> = new Set([
-  "card.config",
+  "card.config", "card.tickDone",
   "ui.setStatus", "ui.notify", "ui.setAccent", "ui.openLink", "ui.confirm",
   "storage.get", "storage.set", "storage.remove",
   "sysinfo.cpu", "sysinfo.memory", "sysinfo.disks", "sysinfo.network", "sysinfo.os",

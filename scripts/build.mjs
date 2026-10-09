@@ -15,6 +15,7 @@ await Promise.all([
   build({ ...common, entryPoints: ["src/preload/card.ts"], outfile: "dist/preload/card.js", platform: "browser", format: "cjs", external: ["electron"] }),
   build({ ...common, entryPoints: ["src/preload/dashboard.ts"], outfile: "dist/preload/dashboard.js", platform: "browser", format: "cjs", external: ["electron"] }),
   build({ ...common, entryPoints: ["src/card-runtime/runtime.ts"], outfile: "dist/card-runtime/runtime.js", platform: "browser", format: "esm", sourcemap: false }),
+  build({ ...common, entryPoints: ["src/card-runtime/worker-runtime.ts"], outfile: "dist/card-runtime/worker-runtime.js", platform: "browser", format: "esm", sourcemap: false }),
   build({ ...common, entryPoints: ["src/renderer/dashboard.ts"], outfile: "dist/renderer/dashboard.js", platform: "browser", format: "esm" }),
 ]);
 cpSync("src/renderer/index.html", "dist/renderer/index.html");
