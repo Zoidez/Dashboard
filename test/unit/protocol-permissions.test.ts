@@ -68,6 +68,19 @@ test("the covering permission must match type, scope and method", () => {
   assert.equal(findCovering(perms, { type: "reports.read", taskId: "trig_9999999999" }, id), -1);
 });
 
+test("links.open: listed origins only, or any https link when any is set", () => {
+  const id = (p: string) => p;
+  const listed: Permission[] = [{ type: "links.open", origins: ["https://news.example.com"], reason: "opens the article links" }];
+  const any: Permission[] = [{ type: "links.open", any: true, reason: "opens the report's source links" }];
+  const req = (u: string) => ({ type: "links.open" as const, url: new URL(u) });
+  assert.equal(findCovering(listed, req("https://news.example.com/a"), id), 0);
+  assert.equal(findCovering(listed, req("https://other.example.com/a"), id), -1);
+  assert.equal(findCovering(listed, req("http://news.example.com/a"), id), -1);
+  assert.equal(findCovering(any, req("https://anything.example/x"), id), 0);
+  assert.equal(findCovering(any, req("http://anything.example/x"), id), -1);
+  assert.equal(findCovering([], req("https://news.example.com/a"), id), -1);
+});
+
 test("instance containment is case-insensitive and segment-exact", () => {
   assert.ok(isInsideInstance("D:\\Dash\\Build", "d:\\dash\\build\\data\\x"));
   assert.ok(isInsideInstance("D:\\Dash\\Build", "D:\\Dash\\Build"));

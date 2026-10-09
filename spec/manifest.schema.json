@@ -390,6 +390,40 @@
           }
         },
         {
+          "title": "Open links in the default browser",
+          "description": "Either a list of https origins (shown as a normal line) or any: true (any https link; marked yellow on the approval canvas). Without this permission api.ui.openLink is denied.",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "reason"
+          ],
+          "oneOf": [
+            { "required": ["origins"], "not": { "required": ["any"] } },
+            { "required": ["any"], "not": { "required": ["origins"] } }
+          ],
+          "properties": {
+            "type": {
+              "const": "links.open"
+            },
+            "origins": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^https://[a-z0-9.-]+(:[0-9]{1,5})?$"
+              }
+            },
+            "any": {
+              "const": true
+            },
+            "reason": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        },
+        {
           "title": "RESERVED: talk to Claude. Rejected by the validator in apiVersion 0.",
           "additionalProperties": false,
           "required": [
@@ -420,7 +454,7 @@
           "type"
         ]
       },
-      "description": "Allowed in apiVersion 0: fs.read, fs.write, fs.delete, net.http, sysinfo, reports.read. process.run, process.launch and claude are reserved (defined for forward compatibility) and rejected. DLL calls (ffi.call) were removed from cards permanently (user decision 2026-10-09) and do not exist."
+      "description": "Allowed in apiVersion 0: fs.read, fs.write, fs.delete, net.http, sysinfo, reports.read, links.open. process.run, process.launch and claude are reserved (defined for forward compatibility) and rejected. DLL calls (ffi.call) were removed from cards permanently (user decision 2026-10-09) and do not exist."
     },
     "configField": {
       "type": "object",

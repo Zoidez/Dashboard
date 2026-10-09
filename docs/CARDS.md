@@ -15,9 +15,9 @@ The card for making and changing cards. Called "the Claude card" in older docs; 
 ## 2. Watch feed: "Daily Kessler Syndrome watch" (preset `watch-feed`)
 The reference for the watch-feed preset; the other two feed cards are the same card with a different task.
 - **Shows:** severity label and colour, bottom line, digest body (sanitized Markdown), run time, sources as links; "Feed offline" banner per PRESETS.md.
-- **Permissions:** `reports.read` for `trig_01AmX52WU9gtbFB6fHLAW7A6`. Nothing else.
+- **Permissions:** `reports.read` for `trig_01AmX52WU9gtbFB6fHLAW7A6`, and `links.open` with `any: true` (its source links point anywhere). Nothing else.
 - **Uses:** `api.reports.state/history/onChange`, `api.ui.markdown`, `api.ui.setAccent`, `api.ui.setStatus`, `api.ui.openLink`.
-- **Danger marking:** none.
+- **Danger marking:** yellow for `links.open` any (PERMISSIONS.md 3a); no red.
 
 ## 3. System info
 - **Shows:** CPU load, memory used/total, and each disk's used/total, refreshed every minute; a small history line for CPU over the last hour (kept in `api.storage`).

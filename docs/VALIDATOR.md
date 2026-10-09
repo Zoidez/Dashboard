@@ -35,7 +35,7 @@ Fails on any of:
 - Direct network: `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `navigator.sendBeacon`, `RTCPeerConnection`, `importScripts`, dynamic `import()` of anything but the card's own files.
 - Navigation: `window.open`, assignments to `location`, `<a target>` without going through `api.ui.openLink`.
 - Node: `require`, `process`, `module`, `Buffer`, `globalThis` property access by computed string.
-- Each `api.*` call must be covered by a declared permission (e.g. `api.net.request` needs `net.http`, `api.fs.remove` needs `fs.delete`).
+- Each `api.*` call must be covered by a declared permission (e.g. `api.net.request` needs `net.http`, `api.fs.remove` needs `fs.delete`, `api.ui.openLink` needs `links.open`).
 - SVG assets: no scripts, no event attributes, no external references.
 Static checks catch honest mistakes and obvious tricks. They are not the boundary: the runtime wrapper (ARCHITECTURE.md, "The wrapper") is, and V5 tests it on this card.
 

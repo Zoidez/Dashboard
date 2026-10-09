@@ -84,7 +84,7 @@ For future local apps that need to send requests to Claude. The Claude card does
 ## Generator rules (sent with every request)
 1. Request the minimum permissions the card needs, each scoped as narrowly as possible: a specific path, origin, system-info field or task ID. Never a whole capability class when a scope will do. Give a one-line justification for each permission in the manifest.
 2. Never request reserved permissions (`process.run`, `process.launch`, `claude`) or access to the generator, Claude credentials, or any Claude task other than the one(s) the card displays. Cards can never call DLLs; there is no permission for it.
-3. Treat all external content as untrusted data: web responses, files and Claude task output. Render it as text or sanitized Markdown (`api.ui.markdown`). Never use innerHTML or eval on it. Load no remote scripts, styles or images. Links open through `api.ui.openLink`.
+3. Treat all external content as untrusted data: web responses, files and Claude task output. Render it as text or sanitized Markdown (`api.ui.markdown`). Never use innerHTML or eval on it. Load no remote scripts, styles or images. Links open through `api.ui.openLink`, which needs a `links.open` permission: list the sites when they are known; `any: true` only when the links can point anywhere (shown yellow).
 4. No destructive action (delete, overwrite, send data outward) without an explicit confirmation step (`api.ui.confirm`).
 5. Use only the host API. Card code has no Node.js and no direct network; `fetch`, WebSocket and similar are blocked by the host.
 6. Declare `apiVersion` in the manifest.

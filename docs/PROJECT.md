@@ -129,6 +129,9 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-09 | **Any navigation or reload of a card view ends the card** (fail closed) | A hostile form submit/`location` change must never load another page; ending the card is simpler than proving every navigation path is cancelled. |
 | 2026-10-09 | A fresh in-memory session partition per card **start** (not per card id) | A restarted card must not inherit in-memory state; different partitions also guarantee different renderer processes. |
 | 2026-10-09 | The approval is re-checked on **every** broker call, not only on first use | Revocation and version mismatch take effect on the next call; costs a map lookup. |
+| 2026-10-09 | **`net.http` to a non-public IP literal is marked red** on the approval canvas | User decision. The broker already allows such an address only when the permission names it. |
+| 2026-10-09 | **New permission `links.open`** (`origins` list, or `any: true`); `api.ui.openLink` is denied without it. `any: true` is marked **yellow**, a new caution level below red that does not trigger the approval dialog | User decision: reaching known sites is fine; opening arbitrary links is yellow. The host cannot see clicks inside the card process, so links stay https-only and rate-limited (1 per 2 s per card). |
+| 2026-10-09 | Electron fuses vs. testing the packaged build: deferred | User decision: decide when the packaged build exists. |
 | 2026-10-09 | **"Test the new CLI version" button** on the Claude card when the installed CLI build is not on the tested list (or its testing is incomplete); runs the spike on a click; candidates install side by side and never replace the active approved build; switching builds is a user click | User requirement. Design details by Claude (ARCHITECTURE.md "Claude card: CLI test states"). |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)
@@ -151,9 +154,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 ## Open questions
 - [ ] User wants per-card conversations to live in this claude.ai Project. Not possible as far as verified.
 - [ ] Unverified: what a "Require this computer" task does when the PC is unreachable at run time.
-- [ ] **Electron fuses vs. tests on the packaged build.** The shipped exe should disable RunAsNode, NODE_OPTIONS and the inspect arguments (otherwise anyone can run Dashboard.exe as Node). Playwright drives Electron through the inspector, so a hardened build cannot be driven. Options: test an otherwise identical build with only the inspect fuse on, or add a host-side test mode. Until decided, e2e runs on the unpackaged build (TESTPLAN says packaged).
-- [ ] **`net.http` to private IP literals** (e.g. `https://169.254.169.254`, `https://192.168.1.10`) passes the manifest schema, and the broker allows it because the permission names the address. PERMISSIONS.md marks only localhost red. Proposal: mark any private, link-local or loopback IP literal red too.
-- [ ] `ui.openLink` "after the user clicks": the host cannot see user activation in the card's process. Current guard: https only, no credentials, one link per 2 s per card. Accept, or route links through a host-drawn confirmation.
+- [ ] **Electron fuses vs. tests on the packaged build.** Deferred by the user (2026-10-09): decide when the packaged build exists. The shipped exe should disable RunAsNode, NODE_OPTIONS and the inspect arguments (otherwise anyone can run Dashboard.exe as Node). Playwright drives Electron through the inspector, so a hardened build cannot be driven. Options: test an otherwise identical build with only the inspect fuse on, or add a host-side test mode. Until decided, e2e runs on the unpackaged build (TESTPLAN says packaged).
 - [ ] CPU watchdog (90 % for 30 s) has no automated test yet; memory, message size and rate do.
 
 ## Status

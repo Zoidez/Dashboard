@@ -265,6 +265,7 @@ export class Broker {
         let url: URL;
         try { url = new URL(str(a[0], "url", 2000)); } catch { throw new HostError("InvalidArgument", "not a valid URL"); }
         if (url.protocol !== "https:" || url.username || url.password) throw new HostError("InvalidArgument", "only https links without credentials can be opened");
+        this.grant(s, { type: "links.open", url }, `open link ${url.origin}`);
         await ui.openLink(s.cardId, url);
         return null;
       }

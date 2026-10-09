@@ -11,7 +11,8 @@ export type Permission =
   | { type: "fs.read" | "fs.write" | "fs.delete"; path: string; recursive?: boolean; reason: string }
   | { type: "net.http"; origin: string; pathPrefix?: string; methods: HttpMethod[]; reason: string }
   | { type: "sysinfo"; fields: SysinfoField[]; reason: string }
-  | { type: "reports.read"; taskId: string; reason: string };
+  | { type: "reports.read"; taskId: string; reason: string }
+  | { type: "links.open"; origins?: string[]; any?: true; reason: string };
 
 /** Types that are reserved or removed; never grantable in apiVersion 0 (host invariant 11). */
 export const FORBIDDEN_PERMISSION_TYPES = new Set(["process.run", "process.launch", "claude", "ffi.call"]);
@@ -20,7 +21,8 @@ export type CapabilityRequest =
   | { type: "fs.read" | "fs.write" | "fs.delete"; path: string }
   | { type: "net.http"; url: URL; method: HttpMethod }
   | { type: "sysinfo"; field: SysinfoField }
-  | { type: "reports.read"; taskId: string };
+  | { type: "reports.read"; taskId: string }
+  | { type: "links.open"; url: URL };
 
 /** "/api" covers "/api" and "/api/x", not "/apix". "/" covers everything. */
 export function pathPrefixCovers(prefix: string, path: string): boolean {
@@ -52,6 +54,10 @@ export function findCovering(perms: readonly Permission[], req: CapabilityReques
         break;
       case "reports.read":
         if (p.type === "reports.read" && p.taskId === req.taskId) return i;
+        break;
+      case "links.open":
+        if (p.type === "links.open" && req.url.protocol === "https:"
+          && (p.any === true || (p.origins ?? []).some((o) => new URL(o).origin === req.url.origin))) return i;
         break;
       case "net.http":
         if (p.type === "net.http" && p.methods.includes(req.method)

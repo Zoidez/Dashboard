@@ -14,6 +14,8 @@ Every permission is one line: what the card may do, in words, then the card's ow
 | `net.http`, any POST/PUT/PATCH/DELETE | **Send data to** and fetch data from `<origin>` (paths starting `<prefix>`) |
 | `sysinfo` | Read your computer's `<fields in words>`. `processes` reads "the names of running programs"; `network` reads "network adapter names and traffic". |
 | `reports.read` | Read the reports of your scheduled task "<task name>" |
+| `links.open` with `origins` | Open links to `<origins>` in your browser |
+| `links.open` with `any: true` | Open **any** web link in your browser (yellow, section 3a) |
 
 Paths are shown in full, never shortened. Instance-relative paths (`./...`) are shown resolved to the real folder.
 
@@ -25,6 +27,11 @@ Shown with a red marker and the explanation under the line:
 - `fs.write` or `fs.delete` on a drive root, on the user folder or one of its top-level folders, or recursive on any of them: "can change or delete a large part of your files".
 - Any `fs.*` scope on a folder where Windows starts programs automatically (Startup folders): "can make programs start with Windows".
 - `net.http` to `http://localhost` or `http://127.0.0.1`: "can talk to programs running on this computer".
+- `net.http` to an IP address in a loopback, private, link-local or otherwise non-public range (e.g. `https://192.168.1.10`, `https://169.254.169.254`): "can talk to devices on your local network or to this computer" (user decision 2026-10-09). The broker allows such an address only when the permission names it.
+
+## 3a. Caution marking (yellow)
+Yellow means "worth a look", not "dangerous". It is shown with a yellow marker, a text tag (Y) and the explanation under the line, but it does **not** trigger the approval dialog (section 6); red always wins over yellow.
+- `links.open` with `any: true`: "can open any web link in your browser. A link's address can carry what the card reads." (user decision 2026-10-09: opening links to listed, known sites is fine; opening arbitrary links is yellow.)
 
 The validator already rejects scopes inside the Dashboard's own folder (RULES.md, host invariant 12), so they never reach the canvas.
 

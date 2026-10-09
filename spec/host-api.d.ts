@@ -169,7 +169,8 @@ export interface StorageApi {
 export interface UiApi {
   /** Sanitized Markdown -> DOM fragment. No raw HTML, no scripts, no remote images; links open externally. */
   markdown(src: string): DocumentFragment;
-  /** Opens an https:// URL in the user's default browser, after the user clicks a link. Host-controlled; no permission needed. */
+  /** Opens an https:// URL in the user's default browser, after the user clicks a link. Needs links.open covering the
+   *  URL's origin (or links.open with any: true). Rate-limited by the host. */
   openLink(url: string): Promise<void>;
   /** Host confirmation dialog. Required before destructive actions (generator rule 4). */
   confirm(message: string, opts?: { danger?: boolean; confirmLabel?: string }): Promise<boolean>;
