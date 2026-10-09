@@ -6,8 +6,8 @@
  * Read/Edit/Write aborts it (RULES.md, Binary and config 2a).
  */
 import type { ChildProcess } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { GeneratorGate } from "./cli-gate.js";
 
 export const ALLOWED_TOOLS = ["Read", "Edit", "Write"];
@@ -25,6 +25,8 @@ export interface RunInput {
   resumeSessionId?: string;
   timeoutMs: number;
   onProgress?: (text: string) => void;
+  /** Where to save this run's output stream and stderr (under data/generator/runs/; never the CLI config folder). */
+  logFile?: string;
 }
 
 export interface RunResult {
@@ -37,6 +39,8 @@ export interface RunResult {
   timedOut: boolean;
   stopped: boolean;
   resumeFailed: boolean;
+  /** Tool calls Claude Code refused during the run (result.permission_denials), as "Tool: target". */
+  denials: string[];
 }
 
 export function lockdownArgs(hostDir: string): string[] {
@@ -85,7 +89,9 @@ export const MCP_JSON = JSON.stringify({ mcpServers: {} });
 
 export async function runGenerator(input: RunInput, signal: AbortSignal): Promise<RunResult> {
   const args = [...lockdownArgs(input.hostDir), "--append-system-prompt", input.systemPrompt, ...(input.resumeSessionId ? ["--resume", input.resumeSessionId] : [])];
-  const res: RunResult = { ok: false, text: "", tools: [], exitCode: null, timedOut: false, stopped: false, resumeFailed: false };
+  const res: RunResult = { ok: false, text: "", tools: [], exitCode: null, timedOut: false, stopped: false, resumeFailed: false, denials: [] };
+  const log = (s: string) => { if (input.logFile) { try { appendFileSync(input.logFile, s); } catch { /* logging never breaks a run */ } } };
+  if (input.logFile) { try { mkdirSync(dirname(input.logFile), { recursive: true }); } catch { /* ignore */ } }
   let child: ChildProcess;
   try {
     child = await input.gate.launch(args, { cwd: input.workDir, env: generatorEnv(input.configDir), stdio: ["pipe", "pipe", "pipe"] });
@@ -103,6 +109,7 @@ export async function runGenerator(input: RunInput, signal: AbortSignal): Promis
 
   const onLine = (line: string) => {
     if (!line.trim()) return;
+    log(line + "\n");
     let ev: Record<string, unknown>;
     try { ev = JSON.parse(line) as Record<string, unknown>; } catch { return; }
     if (ev.type === "system" && ev.subtype === "init") {
@@ -119,6 +126,13 @@ export async function runGenerator(input: RunInput, signal: AbortSignal): Promis
     } else if (ev.type === "result") {
       result = ev;
       if (typeof ev.session_id === "string") res.sessionId = ev.session_id;
+      if (Array.isArray(ev.permission_denials)) {
+        res.denials = (ev.permission_denials as Array<{ tool_name?: string; tool_input?: Record<string, unknown> }>).map((d) => {
+          const t = d.tool_input ?? {};
+          const target = t.file_path ?? t.path ?? t.command ?? t.pattern ?? "";
+          return `${d.tool_name ?? "?"}${target ? `: ${String(target).slice(0, 200)}` : ""}`;
+        });
+      }
     }
   };
   child.stdout?.setEncoding("utf8");
@@ -132,6 +146,8 @@ export async function runGenerator(input: RunInput, signal: AbortSignal): Promis
   clearTimeout(timer);
   signal.removeEventListener("abort", onAbort);
   if (buf) onLine(buf);
+  if (stderr) log(`\n[stderr]\n${stderr}\n`);
+  log(`[exit] ${code}${aborted ? ` (aborted: ${aborted})` : ""}\n`);
   res.exitCode = code;
   const r = result as Record<string, unknown> | null;
   res.text = typeof r?.result === "string" ? r.result : "";

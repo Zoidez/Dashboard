@@ -19,7 +19,7 @@ import type { InstancePaths } from "../instance.js";
 import { report, validate, type LoadedCard, type StageResult } from "../validator/validate.js";
 import type { GateResult, GeneratorGate } from "./cli-gate.js";
 import { retryMessage, systemPrompt, userMessage, type PromptDocs } from "./prompt.js";
-import { MCP_JSON, runGenerator, SETTINGS_JSON } from "./runner.js";
+import { MCP_JSON, runGenerator, SETTINGS_JSON, type RunResult } from "./runner.js";
 
 export const MAX_RETRIES = 3;
 const STOPWORDS = new Set(["the", "and", "that", "with", "card", "show", "shows", "make", "create", "how", "much", "many", "what", "which", "this", "into", "from", "for", "please", "want", "need", "should", "display", "displays", "can", "you", "all", "any", "its", "every"]);
@@ -144,11 +144,15 @@ export class GeneratorPipeline extends EventEmitter {
       const sys = systemPrompt(this.d.docs());
       let prompt = userMessage({ cardId, kind, preset: req.preset }, req.text);
 
+      // Each run's output stream, for the user and for diagnosis (the CLI's own transcript lives in data/claude, which the Dashboard never reads).
+      const runDir = join(this.d.paths.generator, "runs", cardId, requestId);
+      const runLog = (attempt: number, suffix = "") => join(runDir, `attempt-${attempt + 1}${suffix}.jsonl`);
+
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         this.set({ phase: "writing", attempt, message: attempt === 0 ? "Claude is writing the card" : `Claude is fixing validator errors (retry ${attempt} of ${MAX_RETRIES})`, progress: undefined });
         let run = await runGenerator({
           gate: this.d.gate, workDir: work, prompt, systemPrompt: sys, hostDir: join(this.d.paths.generator, "host"),
-          configDir: join(this.d.paths.data, "claude"), resumeSessionId: sessionId, timeoutMs: this.d.timeoutMs ?? 10 * 60_000,
+          configDir: join(this.d.paths.data, "claude"), resumeSessionId: sessionId, timeoutMs: this.d.timeoutMs ?? 10 * 60_000, logFile: runLog(attempt),
           onProgress: (t) => this.set({ progress: t }),
         }, signal);
         if (run.resumeFailed) {
@@ -157,7 +161,7 @@ export class GeneratorPipeline extends EventEmitter {
           sessionId = undefined;
           run = await runGenerator({
             gate: this.d.gate, workDir: work, prompt, systemPrompt: sys, hostDir: join(this.d.paths.generator, "host"),
-            configDir: join(this.d.paths.data, "claude"), timeoutMs: this.d.timeoutMs ?? 10 * 60_000, onProgress: (t) => this.set({ progress: t }),
+            configDir: join(this.d.paths.data, "claude"), timeoutMs: this.d.timeoutMs ?? 10 * 60_000, logFile: runLog(attempt, "-new-conversation"), onProgress: (t) => this.set({ progress: t }),
           }, signal);
         }
         if (run.stopped) return this.set({ phase: "stopped", message: "stopped by you" });
@@ -166,7 +170,7 @@ export class GeneratorPipeline extends EventEmitter {
           await fsp.mkdir(join(this.d.paths.config, cardId), { recursive: true });
           await fsp.writeFile(sessionFile, JSON.stringify({ sessionId, updatedAt: new Date().toISOString() }));
         }
-        if (!run.ok) return this.fail(`The generator run failed: ${run.reason}`);
+        if (!run.ok) return this.fail(`The generator run failed: ${run.reason}`, whatClaudeSaid(run, runDir));
 
         const after = await snapshot(this.d.paths.staging, work);
         const appeared = [...after.entries()].filter(([p, v]) => before.get(p) !== v).map(([p]) => p);
@@ -181,7 +185,7 @@ export class GeneratorPipeline extends EventEmitter {
         if (v.ok) return await this.approveAndInstall(v.card, kind, installed);
         const errors = report(v.stages);
         this.d.audit.write(cardId, "denied", `validation failed (attempt ${attempt + 1}): ${errors.slice(0, 500)}`);
-        if (attempt === MAX_RETRIES || !sessionId) return this.fail(`The card did not pass validation${attempt ? ` after ${attempt} retries` : ""}.`, errors, v.stages);
+        if (attempt === MAX_RETRIES || !sessionId) return this.fail(`The card did not pass validation${attempt ? ` after ${attempt} retries` : ""}.`, `${errors}${whatClaudeSaid(run, runDir)}`, v.stages);
         prompt = retryMessage(errors);
       }
     } catch (e) {
@@ -232,4 +236,13 @@ export class GeneratorPipeline extends EventEmitter {
       try { await fsp.lstat(join(work, bad)); throw new Error(`the request folder contains ${bad}`); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
     }
   }
+}
+
+/** Shown to the user with a failure: what Claude Code refused, Claude's last reply, and where the run log is. */
+function whatClaudeSaid(run: RunResult, runDir: string): string {
+  const parts: string[] = [];
+  if (run.denials.length) parts.push(`Claude Code refused these tool calls:\n${run.denials.slice(0, 10).map((d) => `- ${d}`).join("\n")}`);
+  if (run.text.trim()) parts.push(`Claude's last reply:\n${run.text.trim().slice(0, 1500)}`);
+  parts.push(`Run logs: ${runDir}`);
+  return `\n\n${parts.join("\n\n")}`;
 }
