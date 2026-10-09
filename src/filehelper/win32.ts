@@ -64,6 +64,9 @@ interface Api {
   NtSetInformationFile: (h: Handle, iosb: unknown, buf: Buffer, size: number, cls: number) => number;
   SHFileOperationW: (op: Record<string, unknown>) => number;
   CoInitializeEx: (r: null, flags: number) => number;
+  FindFirstStreamW: (path: string, level: number, data: Buffer, flags: number) => Handle;
+  FindNextStreamW: (h: Handle, data: Buffer) => number;
+  FindClose: (h: Handle) => number;
 }
 
 let api: Api | null = null;
@@ -101,6 +104,9 @@ function w(): Api {
       return koffi.load("shell32.dll").func("int __stdcall SHFileOperationW(_Inout_ DASH_SHFILEOPSTRUCTW *op)");
     })(),
     CoInitializeEx: koffi.load("ole32.dll").func("int32_t __stdcall CoInitializeEx(void *reserved, uint32_t flags)"),
+    FindFirstStreamW: k32.func("intptr_t __stdcall FindFirstStreamW(str16 path, int level, _Out_ uint8_t *data, uint32_t flags)"),
+    FindNextStreamW: k32.func("int __stdcall FindNextStreamW(intptr_t h, _Out_ uint8_t *data)"),
+    FindClose: k32.func("int __stdcall FindClose(intptr_t h)"),
   } as unknown as Api;
   return api;
 }
@@ -245,6 +251,30 @@ export function recycle(path: string): boolean {
   };
   const rc = a.SHFileOperationW(op);
   return rc === 0 && !op.fAnyOperationsAborted;
+}
+
+/**
+ * The NTFS streams of a file, e.g. ["::$DATA", ":hidden:$DATA"]. Anything besides the main stream
+ * "::$DATA" is an alternate data stream (VALIDATOR.md V0 rejects them in staging).
+ */
+export function streamsOf(path: string): string[] {
+  const a = w();
+  // WIN32_FIND_STREAM_DATA: LARGE_INTEGER StreamSize (8) + WCHAR cStreamName[MAX_PATH + 36]
+  const data = Buffer.alloc(8 + 2 * (260 + 36));
+  const h = a.FindFirstStreamW(path, 0 /* FindStreamInfoStandard */, data, 0);
+  if (h === -1 || h === -1n) {
+    const e = a.GetLastError();
+    if (e === 38 /* ERROR_HANDLE_EOF: no streams (a folder) */) return [];
+    throw new Win32Error("FindFirstStreamW", e);
+  }
+  const out: string[] = [];
+  try {
+    do {
+      const raw = data.toString("utf16le", 8);
+      out.push(raw.slice(0, raw.indexOf("\0") >= 0 ? raw.indexOf("\0") : raw.length));
+    } while (a.FindNextStreamW(h, data));
+  } finally { a.FindClose(h); }
+  return out;
 }
 
 export interface DirEntry { name: string; isDirectory: boolean; isReparse: boolean; size: number; modifiedAt: string }

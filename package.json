@@ -17,9 +17,11 @@
     "test:race": "node --import tsx --test test/race/*.test.ts"
   },
   "dependencies": {
+    "ajv": "8.20.0",
     "koffi": "3.3.2",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
@@ -28,8 +30,7 @@
     "@types/react-dom": "19.3.0",
     "electron": "44.7.0",
     "esbuild": "0.28.2",
-    "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "tsx": "4.23.15"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

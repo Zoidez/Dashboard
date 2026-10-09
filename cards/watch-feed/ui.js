@@ -89,7 +89,7 @@ export async function mount(root, api) {
     document.head.append(st);
   }
   api.ui.setStatus({ state: "loading" });
-  const taskId = api.card.config.taskId;
+  const taskId = String(api.card.config.taskId ?? "");
   try {
     render(root, api, await api.reports.state(taskId));
     stopWatching = api.reports.onChange(taskId, (s) => render(root, api, s));
