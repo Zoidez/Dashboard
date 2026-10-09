@@ -29,9 +29,13 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 - Do not run `spikes\spike1-cli.ps1` yourself; the user runs it (it needs UAC and the user's sign-in).
 
 ## Current state (2026-10-09)
-- Planning is complete. Development has not started.
-- Prototype only: `src\main\generator\cli-gate.ts` + `test\cli-gate.test.ts` (the CLI gate; keep, rework for the tested list).
-- **Next:** the runtime skeleton — Electron, one sandboxed card view, the broker with network blocking and channel-based identity, lazy grants, and the first tests from `docs\TESTPLAN.md` part A. Technical choices to record when starting: pinned Electron version, portable build into `Build\app\`, koffi for the host's file helper, Node test runner + Playwright for Electron.
+- Runtime skeleton built and tested (see `docs\PROJECT.md`, Status). CLI gate still a prototype: rework for the tested list.
+- **Next:** the native file helper and `api.fs` (TESTPLAN A4), then reports and the watch feed.
+
+## Working in this repo
+- Use the project's Node: prepend `tools\node` to PATH (Node 24.21.0; the system Node 20 is too old for Electron 44).
+- `npm run build` bundles into `dist\`; `npm start` runs the app on `Build\`; `npm test` = typecheck + unit (`test\unit`) + e2e (`test\e2e`, Playwright, throwaway instances in %TEMP%).
+- E2E fixture cards are approved by writing approval records directly (`test\e2e\helpers.ts`); there is no approval canvas yet.
 
 ## Note on this file and the generator
 The generator CLI runs in folders under `Build\ClaudeExchange\staging\`, below this file. Under `--restricted` it does not load ancestor `CLAUDE.md` files (spike test T8, CLI 2.1.293). Keep it that way: never weaken the generator's lockdown flags, and re-run the spike on every new CLI version (RULES.md 1a/1b).

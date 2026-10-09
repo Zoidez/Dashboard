@@ -81,7 +81,13 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 - [x] Reference cards defined — CARDS.md: New (permanent, multi-line input), watch feed, system info, file watcher. Code to follow.
 - [x] v1 test plan — TESTPLAN.md (approved 2026-10-09)
 ### Next build step
-- [ ] Runtime skeleton: Electron, one card view, broker with network blocking and channel identity, first negative tests (proves "The wrapper" in code).
+- [x] Runtime skeleton: Electron, one card view, broker with network blocking and channel identity, first negative tests (proves "The wrapper" in code). Done 2026-10-09: TESTPLAN A1, A2, A3, A6, A7, A8, A9 (memory, size, rate), A10, A11 pass as automated tests (8 e2e, 30 unit incl. the CLI gate).
+### Next build steps
+- [ ] Native file helper (koffi: CreateFileW + GetFinalPathNameByHandleW, NtCreateFile with RootDirectory) and `api.fs` read/list/stat/write, with A4. Delete last, only if race-resistant. ADS detection (FindFirstStreamW) for VALIDATOR V0.
+- [ ] Reports + watch-feed preset (chokidar, report validation, offline banner, retention) and the sanitized Markdown renderer (replaces the interim plain-text `ui.markdown`).
+- [ ] `worker.js` as a Web Worker in the card view (messaging over the same port).
+- [ ] React grid, File > Options, tray and start with Windows.
+- [ ] Portable packaged build into `Build/app/` + `Build/Dashboard.lnk` setup step; decide Electron fuses vs. testing the packaged build (see Open questions).
 
 ## Decision log
 | Date | Decision | Reason |
@@ -117,6 +123,12 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-09 | **`Dashboard.exe` lives in `Build/app/`**; `Build/Dashboard.lnk` is a shortcut made once by setup, never by a build | User approved. Keeps "builds write only `app/`" true. |
 | 2026-10-09 | **OS rights under the broker**: card renderers run under Chromium's Windows sandbox (Untrusted integrity, restricted token, job object without child processes); the host suite verifies it on every card process and refuses cards that fail | User direction: enforce through process rights where possible. Unverified until TESTPLAN A1 passes. |
 | 2026-10-09 | Git repository initialised; docs committed as the baseline | User approved. |
+| 2026-10-09 | **Toolchain pinned**: Electron 44.7.0, TypeScript 5.9.3, esbuild 0.28.2, tsx 4.23.15, Playwright 1.64.0, koffi 3.3.2. **Node 24.21.0 portable in `tools/node/`** (git-ignored; SHA-256 checked against SHASUMS256.txt, whose GPG signature verified with Node's release keys) | Every supported Electron line needs Node >= 22.12; the system Node was 20.11 (EOL). User chose the project-local Node. TypeScript 5.9, not 7.0: the validator needs the compiler API (checkJs), unverified on the 7.0 native port. npm 11 install scripts allowed only for esbuild and koffi. |
+| 2026-10-09 | Skeleton Dashboard page is plain TS; React arrives with the grid | The skeleton's job was the wrapper; a grid framework added nothing to that. |
+| 2026-10-09 | **Network: CSP is the first line, the session filter the second, a dead proxy the third.** CSP violations are logged from the card's console as blocked requests | Tests showed CSP stops every in-page attempt before the session filter sees it; the session filter is tested separately by loading a CSP-free page into the card's session (ERR_BLOCKED_BY_CLIENT). |
+| 2026-10-09 | **Any navigation or reload of a card view ends the card** (fail closed) | A hostile form submit/`location` change must never load another page; ending the card is simpler than proving every navigation path is cancelled. |
+| 2026-10-09 | A fresh in-memory session partition per card **start** (not per card id) | A restarted card must not inherit in-memory state; different partitions also guarantee different renderer processes. |
+| 2026-10-09 | The approval is re-checked on **every** broker call, not only on first use | Revocation and version mismatch take effect on the next call; costs a map lookup. |
 | 2026-10-09 | **"Test the new CLI version" button** on the Claude card when the installed CLI build is not on the tested list (or its testing is incomplete); runs the spike on a click; candidates install side by side and never replace the active approved build; switching builds is a user click | User requirement. Design details by Claude (ARCHITECTURE.md "Claude card: CLI test states"). |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)
@@ -139,9 +151,13 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 ## Open questions
 - [ ] User wants per-card conversations to live in this claude.ai Project. Not possible as far as verified.
 - [ ] Unverified: what a "Require this computer" task does when the PC is unreachable at run time.
+- [ ] **Electron fuses vs. tests on the packaged build.** The shipped exe should disable RunAsNode, NODE_OPTIONS and the inspect arguments (otherwise anyone can run Dashboard.exe as Node). Playwright drives Electron through the inspector, so a hardened build cannot be driven. Options: test an otherwise identical build with only the inspect fuse on, or add a host-side test mode. Until decided, e2e runs on the unpackaged build (TESTPLAN says packaged).
+- [ ] **`net.http` to private IP literals** (e.g. `https://169.254.169.254`, `https://192.168.1.10`) passes the manifest schema, and the broker allows it because the permission names the address. PERMISSIONS.md marks only localhost red. Proposal: mark any private, link-local or loopback IP literal red too.
+- [ ] `ui.openLink` "after the user clicks": the host cannot see user activation in the card's process. Current guard: https only, no credentials, one link per 2 s per card. Accept, or route links through a host-drawn confirmation.
+- [ ] CPU watchdog (90 % for 30 s) has no automated test yet; memory, message size and rate do.
 
 ## Status
-Architecture revised after two external reviews; DLL/executable capabilities removed from v1; spike v3 written for Option A and on the PC. Spike 1 run on CLI 2.1.293: the `--restricted` lockdown held everywhere it was exercised (see "Spike 1 results"). Generator boundary decided: Option A. Waiting on the user: attach task folders. CLI gate written and tested (`src/main/generator/cli-gate.ts`, 10 tests). Next for Claude: runtime skeleton with the first negative tests.
+Architecture revised after two external reviews; DLL/executable capabilities removed from v1; spike v3 written for Option A and on the PC. Spike 1 run on CLI 2.1.293: the `--restricted` lockdown held everywhere it was exercised (see "Spike 1 results"). Generator boundary decided: Option A. Waiting on the user: attach task folders. CLI gate written and tested (`src/main/generator/cli-gate.ts`, 10 tests, now on Windows with a compiled fake CLI). **Runtime skeleton built (2026-10-09)**: Electron 44 window, one sandboxed `WebContentsView` per approved card, broker with channel identity, lazy grants, network client with DNS pinning and redirect checks, version-bound approvals, audit/Stop/Revoke, memory/CPU/rate/size limits, and the OS-rights check. Verified on this PC: card processes run at **Untrusted** integrity with a restricted token, each in its own process. Next for Claude: native file helper (A4), then reports and the watch feed.
 
 ## Working rules for Claude on this project
 - User wants blunt correction. Attack weak ideas directly; don't soften.
