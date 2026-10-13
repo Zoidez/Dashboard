@@ -3,6 +3,11 @@
  * send back. Card-provided text (names, status messages) is data: the pages render it as text only.
  */
 
+/** Permission groups the user switches (main/broker/permissions.ts PermissionCategory). */
+export type PermissionCategory = "web" | "files" | "system" | "reports";
+/** A group's state on one card: all on, all off, some of each, or not asked for by the card. */
+export type CategoryState = "on" | "off" | "mixed" | "none";
+
 export interface CardFrame {
   cardId: string;
   name: string;
@@ -14,6 +19,10 @@ export interface CardFrame {
   running: boolean;
   /** Can the user start it again from the grid (stopped, still approved)? */
   startable: boolean;
+  /** The user revoked its approval; the grid offers Grant to undo that. */
+  revoked: boolean;
+  /** Per permission group, for the grid's permission menu. null = no approval (or revoked). */
+  permissions: Record<PermissionCategory, { state: CategoryState; count: number }> | null;
   size: { w: number; h: number };
 }
 
@@ -41,14 +50,27 @@ export interface DashboardState {
   generator: GeneratorView;
 }
 
-/** The frame body rectangle of a running card, in window content coordinates (CSS px). */
-export interface FrameRect { cardId: string; x: number; y: number; width: number; height: number; visible: boolean }
+/**
+ * The frame body rectangle of a running card, in window content coordinates (CSS px), and `clip`: the
+ * grid's visible area. The host shows the part of the body inside the clip; `visible` is false when none
+ * of it is (or while dragging/resizing).
+ */
+export interface FrameRect {
+  cardId: string; x: number; y: number; width: number; height: number;
+  clip: { x: number; y: number; width: number; height: number };
+  visible: boolean;
+}
 
 export interface LayoutUpdate { order: string[]; sizes: Record<string, { w: number; h: number }> }
 
-export type CardAction = "stop" | "start" | "revoke";
+export type CardAction = "stop" | "start" | "revoke" | "grant";
 
-export interface PermissionLineView { text: string; reason: string; marks: Array<{ level: "red" | "yellow"; tag: string; why: string }> }
+export interface PermissionLineView {
+  text: string; reason: string; marks: Array<{ level: "red" | "yellow"; tag: string; why: string }>;
+  category: PermissionCategory;
+  /** Switched on (the broker allows it) or off by the user. */
+  on: boolean;
+}
 
 export interface OptionsState {
   general: { startWithWindows: boolean; closeToTray: boolean; packaged: boolean };

@@ -6,13 +6,14 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { join } from "node:path";
 import type { AuditLog } from "../audit.js";
-import type { ApprovalStore } from "../cards/approvals.js";
+import { offSet, type ApprovalRecord, type ApprovalStore } from "../cards/approvals.js";
+import { categoryOf, PERMISSION_CATEGORIES, type PermissionCategory } from "../broker/permissions.js";
 import type { CardHost } from "../cards/card-host.js";
 import { display } from "../cards/permission-lines.js";
 import { LayoutStore, clampSize } from "../layout.js";
 import type { OptionsStore } from "../options.js";
 import type { FeedService } from "../reports/feeds.js";
-import type { CardAction, CardFrame, DashboardState, GeneratorView, NewCardRequest, OptionsPatch, OptionsState } from "../../shared/ui-state.js";
+import type { CardAction, CardFrame, CategoryState, DashboardState, GeneratorView, NewCardRequest, OptionsPatch, OptionsState } from "../../shared/ui-state.js";
 
 export interface ShellDeps {
   win: BrowserWindow;
@@ -37,7 +38,21 @@ export interface ShellDeps {
   };
 }
 
-const ACTIONS = new Set<CardAction>(["stop", "start", "revoke"]);
+const ACTIONS = new Set<CardAction>(["stop", "start", "revoke", "grant"]);
+const CATEGORIES = new Set<string>(PERMISSION_CATEGORIES);
+
+/** Per-group summary of an approval's permissions, for the grid's permission menu. */
+function categorySummary(rec: ApprovalRecord): Record<PermissionCategory, { state: CategoryState; count: number }> {
+  const off = offSet(rec);
+  const out = Object.fromEntries(PERMISSION_CATEGORIES.map((c) => [c, { state: "none" as CategoryState, count: 0 }])) as Record<PermissionCategory, { state: CategoryState; count: number }>;
+  const on = Object.fromEntries(PERMISSION_CATEGORIES.map((c) => [c, 0])) as Record<PermissionCategory, number>;
+  rec.permissions.forEach((p, i) => { const c = categoryOf(p); out[c].count++; if (!off.has(i)) on[c]++; });
+  for (const c of PERMISSION_CATEGORIES) {
+    const n = out[c].count;
+    out[c].state = n === 0 ? "none" : on[c] === n ? "on" : on[c] === 0 ? "off" : "mixed";
+  }
+  return out;
+}
 
 export class Shell {
   private optionsWin: BrowserWindow | null = null;
@@ -57,6 +72,14 @@ export class Shell {
       this.push();
     });
     ipcMain.on("dashboard:card-action", (e, cardId, action) => { if (fromGrid(e)) void this.cardAction(cardId, action, w); });
+    // The grid's permission menu switches a whole group (web, files, system, reports) of one card.
+    ipcMain.on("dashboard:card-permission", (e, cardId, category, on) => {
+      if (!fromGrid(e) || typeof cardId !== "string" || typeof category !== "string" || !CATEGORIES.has(category) || typeof on !== "boolean") return;
+      const rec = d.approvals.get(cardId);
+      if (!rec) return;
+      const indices = rec.permissions.map((p, i) => (categoryOf(p) === category ? i : -1)).filter((i) => i >= 0);
+      void d.host()?.setPermissions(cardId, indices, on).then(() => this.push());
+    });
     ipcMain.on("dashboard:open-options", (e) => { if (fromGrid(e)) this.openOptions(); });
     // Host invariant 1: a generation starts only from the text typed into the New card, in the grid window.
     ipcMain.on("new:start", (e, req) => {
@@ -74,6 +97,15 @@ export class Shell {
     ipcMain.handle("options:card-action", async (e, cardId, action) => {
       if (!fromOptions(e)) return null;
       await this.cardAction(cardId, action, this.optionsWin!);
+      return this.optionsState();
+    });
+    // Options > Cards > Details > Permissions: one permission, by its index in the approval.
+    ipcMain.handle("options:card-permission", async (e, cardId, index, on) => {
+      if (!fromOptions(e)) return null;
+      if (typeof cardId === "string" && typeof index === "number" && Number.isInteger(index) && typeof on === "boolean") {
+        await this.d.host()?.setPermissions(cardId, [index], on);
+        this.push();
+      }
       return this.optionsState();
     });
     ipcMain.handle("options:audit", async (e, cardId) => (fromOptions(e) && typeof cardId === "string" ? this.d.audit.entries({ cardId }).slice(-200) : []));
@@ -95,10 +127,11 @@ export class Shell {
       const items: Array<Omit<CardFrame, "size">> = [
         ...[...host.cards.values()].map((c) => ({
           cardId: c.cardId, name: c.name, state: c.status.state, message: c.notice ?? c.status.message, updatedAt: c.status.updatedAt,
-          accent: c.accent, running: true, startable: false,
+          accent: c.accent, running: true, startable: false, ...this.approvalView(c.cardId),
         })),
         ...[...host.stopped.entries()].map(([cardId, s]) => ({
           cardId, name: s.name, state: s.status.state, message: s.status.message, accent: "neutral", running: false, startable: host.startable(cardId),
+          ...this.approvalView(cardId),
         })),
       ];
       const frames = this.d.layout.arrange(items, (id) => clampSize(host.defaultSize(id)));
@@ -108,6 +141,11 @@ export class Shell {
       this.optionsWin?.webContents.send("options:changed");
       this.updateTray();
     }, 50);
+  }
+
+  private approvalView(cardId: string): Pick<CardFrame, "revoked" | "permissions"> {
+    const rec = this.d.approvals.get(cardId);
+    return { revoked: rec?.revoked ?? false, permissions: rec && !rec.revoked ? categorySummary(rec) : null };
   }
 
   private async cardAction(cardId: unknown, action: unknown, parent: BrowserWindow): Promise<void> {
@@ -120,12 +158,14 @@ export class Shell {
       case "revoke": {
         const r = await dialog.showMessageBox(parent, {
           type: "warning", title: "Revoke approval", message: `Revoke the approval of "${name}"?`,
-          detail: "The card stops now and stays stopped. It runs again only after you approve it again.",
+          detail: "The card stops now and stays stopped until you click Grant.",
           buttons: ["Cancel", "Revoke"], defaultId: 0, cancelId: 0, noLink: true,
         });
         if (r.response === 1) await host.revoke(cardId);
         break;
       }
+      // Undo of Revoke: no question asked; the start still checks the files against the approval.
+      case "grant": await host.restoreApproval(cardId); break;
     }
     this.push();
   }
@@ -171,7 +211,10 @@ export class Shell {
           message: running?.status.message ?? stopped?.status.message,
           running: !!running, revoked: appr?.revoked ?? false,
           versionHash: appr?.versionHash ?? null, approvedAt: appr?.approvedAt ?? null,
-          permissions: appr ? display(appr.permissions, taskName).lines : [],
+          permissions: appr ? (() => {
+            const off = offSet(appr);
+            return display(appr.permissions, taskName).lines.map((l, i) => ({ ...l, category: categoryOf(appr.permissions[i]), on: !off.has(i) }));
+          })() : [],
         };
       }),
       generator: await this.d.gate(),

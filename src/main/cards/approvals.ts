@@ -23,6 +23,17 @@ export interface ApprovalRecord {
   permissions: Permission[];
   approvedAt: string;
   revoked: boolean;
+  /**
+   * Indices into `permissions` that the user has switched off. The approval still covers them, but
+   * the broker refuses them until they are switched on again. Missing = all on. It can only narrow
+   * what the approval allows, so it is not part of the version hash.
+   */
+  off?: number[];
+}
+
+/** The switched-off permission indices of a record, as a set. */
+export function offSet(rec: ApprovalRecord): Set<number> {
+  return new Set(rec.off ?? []);
 }
 
 export function sha256(data: Uint8Array | string): string {
@@ -82,10 +93,16 @@ export function parseApproval(text: string, expectedId: string): ApprovalRecord 
   if (versionHash(a.files) !== a.versionHash) throw new Error("approval record's version hash does not match its file list");
   if (!Array.isArray(a.permissions)) throw new Error("approval record has no permission list");
   if (typeof a.revoked !== "boolean") throw new Error("approval record has no revoked flag");
+  if (a.off !== undefined) {
+    const n = a.permissions.length;
+    if (!Array.isArray(a.off) || a.off.some((i) => !Number.isInteger(i) || i < 0 || i >= n) || new Set(a.off).size !== a.off.length) {
+      throw new Error("approval record has an invalid list of switched-off permissions");
+    }
+  }
   return a as ApprovalRecord;
 }
 
-/** In-memory view of the approval records. Revoke writes through to disk. */
+/** In-memory view of the approval records. Revoke, grant and permission switches write through to disk. */
 export class ApprovalStore {
   private readonly records = new Map<string, ApprovalRecord>();
   constructor(private readonly dir: string) {}
@@ -112,6 +129,46 @@ export class ApprovalStore {
     const rec = this.records.get(cardId);
     if (!rec) return;
     rec.revoked = true;   // in memory first: the broker sees it on the very next call
-    await fsp.writeFile(this.file(cardId), JSON.stringify(rec, null, 2));
+    await this.save(rec);
+  }
+
+  /**
+   * Undoes a revoke (the green Grant button). The record keeps its version hash and file hashes,
+   * so the card still starts only if its files are exactly the ones the user approved.
+   */
+  async unrevoke(cardId: string): Promise<boolean> {
+    const rec = this.records.get(cardId) ?? await this.load(cardId);
+    if (!rec) return false;
+    if (!rec.revoked) return true;
+    rec.revoked = false;
+    await this.save(rec);
+    return true;
+  }
+
+  /**
+   * Switches approved permissions off or on. In memory first, so the broker refuses a switched-off
+   * permission on the very next call. Returns the indices whose state changed.
+   */
+  async setOff(cardId: string, indices: readonly number[], off: boolean): Promise<number[]> {
+    const rec = this.records.get(cardId);
+    if (!rec) return [];
+    const set = offSet(rec);
+    const changed: number[] = [];
+    for (const i of indices) {
+      if (!Number.isInteger(i) || i < 0 || i >= rec.permissions.length || set.has(i) === off) continue;
+      if (off) set.add(i); else set.delete(i);
+      changed.push(i);
+    }
+    if (!changed.length) return [];
+    const list = [...set].sort((a, b) => a - b);
+    if (list.length) rec.off = list; else delete rec.off;
+    await this.save(rec);
+    return changed;
+  }
+
+  private async save(rec: ApprovalRecord): Promise<void> {
+    const f = this.file(rec.cardId);
+    await fsp.writeFile(f + ".tmp", JSON.stringify(rec, null, 2));
+    await fsp.rename(f + ".tmp", f);
   }
 }

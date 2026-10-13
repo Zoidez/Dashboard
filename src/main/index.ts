@@ -265,6 +265,7 @@ app.whenReady().then(async () => {
     hostApiDts: () => readGen("host-api.d.ts.txt"),
     tsLibDir: join(distDir, "ts-lib"),
     feedTaskIds: () => options.feeds.map((f) => f.taskId),
+    feeds: () => options.feeds.map((f) => ({ taskId: f.taskId, name: f.name })),
     installedInfo: (id) => { const a = approvals.get(id); return a && !a.revoked ? { version: a.version, permissions: a.permissions, files: a.files } : null; },
     smoke: (card) => host!.smoke(card),
     streamsOf,

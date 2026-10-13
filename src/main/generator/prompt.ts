@@ -23,7 +23,16 @@ export function systemPrompt(docs: PromptDocs): string {
   return `${docs.systemPrompt}\n\nGenerator rules (standing requirements for every card):\n${docs.rules}`;
 }
 
-export interface RequestHeader { cardId: string; kind: "new" | "update"; preset: "watch-feed" | null }
+export interface WatchedFeed { taskId: string; name: string }
+export interface RequestHeader { cardId: string; kind: "new" | "update"; preset: "watch-feed" | null; feeds?: readonly WatchedFeed[] }
+
+/** One line per watched feed (Options > Feeds), so the generator can match a task named in the request to its id. */
+function feedLines(feeds: readonly WatchedFeed[] | undefined): string[] {
+  if (!feeds || feeds.length === 0) return ["Watched feeds (the only task ids reports.read may name): none"];
+  const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 200);
+  return ["Watched feeds (the only task ids reports.read may name; match the task the user means by its name):",
+    ...feeds.slice(0, 100).map((f) => `- ${clean(f.taskId)}  ${clean(f.name)}`)];
+}
 
 /** The user message: a host header with the card id, new/update and preset, then the typed text unchanged. */
 export function userMessage(h: RequestHeader, text: string): string {
@@ -32,6 +41,7 @@ export function userMessage(h: RequestHeader, text: string): string {
     `Card ID: ${h.cardId} (use exactly this as manifest.id)`,
     `Kind: ${h.kind === "new" ? "new card" : "update of the card in this folder (raise manifest.version)"}`,
     `Preset: ${h.preset ?? "none"}`,
+    ...feedLines(h.feeds),
     "Reference files: _ref/host-api.d.ts, _ref/manifest.schema.json, _ref/PRESETS.md" + (h.preset ? ", _ref/reference-card/ (start from it)" : ""),
     "---",
     text,

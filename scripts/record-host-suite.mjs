@@ -6,13 +6,16 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
+import { ensureProjectNode } from "./project-node.mjs";
+
+ensureProjectNode();   // Node >= 22.12, else re-run with tools/node (2026-10-10)
 
 const instance = resolve(process.argv.find((a) => a.startsWith("--instance="))?.slice(11) ?? "Build");
 const run = (cmd, args) => spawnSync(cmd, args, { stdio: "inherit", shell: true }).status === 0;
 
 const suites = [
   ["build", "npm run build"],
-  ["unit: broker, net, files (A3-A6, A11)", "node --import tsx --test test/unit/*.test.ts"],
+  ["unit: broker, net, files (A3-A6, A11)", "node scripts/run-tests.mjs test/unit"],
   ["race: junction swap, 5 minutes each (A4)", "npm run test:race"],
   ["e2e: A1-A11", "npx playwright test -c test/e2e/playwright.config.ts a1 a2 a3 a4 a7 a10"],
 ];

@@ -6,7 +6,7 @@ What the Claude Code CLI is given on every card generation. It starts minimal: t
 - **System prompt** (fixed text below), appended with `--append-system-prompt`, plus the generator rules from RULES.md, copied verbatim at build time.
 - **Reference files** copied by the host into the working folder, read-only by convention: `_ref/host-api.d.ts`, `_ref/manifest.schema.json`, `_ref/PRESETS.md`, and the matching reference card from CARDS.md when a preset applies.
 - **For an update:** the card's current files and `DEVLOG.md` in the working folder. These are lower-trust data (RULES.md, Trust levels); the system prompt says so.
-- **User message:** the text typed into the New card, unchanged, plus a host header with the card ID, "new" or "update", and the preset if the user picked one.
+- **User message:** the text typed into the New card, unchanged, plus a host header with the card ID, "new" or "update", the preset if the user picked one, and the watched feeds from Options > Feeds, one line each as `task-id  name` (added 2026-10-13, so a request can name a task instead of quoting its id; these are the only ids `reports.read` may name).
 - **Errors from the validator** (retries): sent as a new user message in the same conversation, prefixed "Validator errors (fix these, change nothing else):".
 
 ## System prompt (draft)

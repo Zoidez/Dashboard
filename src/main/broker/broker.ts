@@ -13,12 +13,12 @@
  */
 import { randomUUID } from "node:crypto";
 import type { AuditLog } from "../audit.js";
-import type { ApprovalStore, ApprovalRecord } from "../cards/approvals.js";
+import { offSet, type ApprovalStore, type ApprovalRecord } from "../cards/approvals.js";
 import { isInsideInstance } from "../instance.js";
 import { METHODS, RESERVED_RE, validateCall, type ErrorCode, type RetMsg, type EvtMsg } from "../../shared/protocol.js";
 import { brokerRequest, NetError, type NetDeps } from "./net.js";
 import { checkSyntax, PathSyntaxError } from "../../filehelper/path-syntax.js";
-import { findCovering, type CapabilityRequest, type Permission, type SysinfoField } from "./permissions.js";
+import { categoryOf, findCovering, type CapabilityRequest, type Permission, type SysinfoField } from "./permissions.js";
 
 export class HostError extends Error {
   constructor(readonly code: ErrorCode, message: string) { super(message); }
@@ -51,6 +51,9 @@ export class CardSession {
   readonly inflight = new Set<AbortController>();
   readonly watches = new Map<number, Closeable>();
   readonly reportWatches = new Map<string, Closeable>();
+  /** Which approved permission (index) each open watch runs under; closed when that permission is switched off. */
+  readonly watchPerm = new Map<number, number>();
+  readonly reportWatchPerm = new Map<string, number>();
   lastWatchId = 0;
   ended = false;
   endReason = "";
@@ -173,6 +176,8 @@ export class Broker {
     s.resources.clear();
     s.watches.clear();
     s.reportWatches.clear();
+    s.watchPerm.clear();
+    s.reportWatchPerm.clear();
     const dropped = s.grants.size;
     s.grants.clear();
     try { s.port.close(); } catch { /* already closed */ }
@@ -250,16 +255,25 @@ export class Broker {
     return rec;
   }
 
-  /** Lazy grant: finds the approved permission that covers the request and records the grant. */
-  private grant(s: CardSession, req: CapabilityRequest, what: string): Permission {
+  /**
+   * Lazy grant: finds the approved permission that covers the request and records the grant.
+   * Permissions the user switched off are skipped. A request only a switched-off permission covers is
+   * refused as "paused": logged, but not counted as a denial (the card did nothing wrong).
+   */
+  private grantIndex(s: CardSession, req: CapabilityRequest, what: string): number {
     if (s.smoke) {
       // Deny-all: record whether the card's own manifest would cover it, then refuse.
       s.smoke.requests.push({ what, covered: findCovering(s.smoke.declared, req, this.opts.resolvePath) >= 0 });
       throw new HostError("PermissionDenied", `not allowed during the validation smoke test: ${what}`);
     }
     const rec = this.approval(s);
-    const idx = findCovering(rec.permissions, req, this.opts.resolvePath);
+    const off = offSet(rec);
+    const idx = findCovering(rec.permissions, req, this.opts.resolvePath, (i) => off.has(i));
     if (idx < 0) {
+      if (off.size && findCovering(rec.permissions, req, this.opts.resolvePath) >= 0) {
+        this.audit.write(s.cardId, "paused", what);
+        throw new HostError("PermissionDenied", `switched off by you: ${what}`);
+      }
       this.audit.write(s.cardId, "denied", what);
       this.countDenial(s);
       throw new HostError("PermissionDenied", `not allowed: ${what}`);
@@ -268,7 +282,56 @@ export class Broker {
       s.grants.set(idx, { permission: rec.permissions[idx], grantedAt: new Date().toISOString() });
       this.audit.write(s.cardId, "grant", `${rec.permissions[idx].type} #${idx} on first use: ${what}`);
     }
-    return rec.permissions[idx];
+    return idx;
+  }
+
+  private grant(s: CardSession, req: CapabilityRequest, what: string): Permission {
+    return this.approval(s).permissions[this.grantIndex(s, req, what)];
+  }
+
+  /** The approved permissions that are switched on (redirect hops are checked against these). */
+  private activePermissions(s: CardSession): Permission[] {
+    const rec = this.approval(s);
+    const off = offSet(rec);
+    return rec.permissions.filter((_, i) => !off.has(i));
+  }
+
+  /**
+   * The user switched permissions of a card off (or on). Takes effect at once in every live session
+   * of the card: grants under a switched-off permission are dropped, and whatever runs under one is
+   * cut: in-flight web requests are aborted, file and report watches are closed. Switching on needs
+   * nothing here; the next call is granted lazily again.
+   */
+  permissionsChanged(cardId: string): void {
+    const rec = this.approvals.get(cardId);
+    if (!rec) return;
+    const off = offSet(rec);
+    for (const s of this.sessions.values()) {
+      if (s.cardId !== cardId || s.ended || s.smoke) continue;
+      let dropped = 0;
+      for (const idx of [...s.grants.keys()]) if (off.has(idx)) { s.grants.delete(idx); dropped++; }
+      // Requests in flight are not tied to one permission (redirects can cross origins): abort them all
+      // once any web permission is off. The card's next request is checked against what is still on.
+      if ([...off].some((i) => rec.permissions[i] && categoryOf(rec.permissions[i]) === "web")) {
+        for (const c of s.inflight) c.abort();
+        s.inflight.clear();
+      }
+      for (const [id, idx] of [...s.watchPerm]) {
+        if (!off.has(idx)) continue;
+        const w = s.watches.get(id);
+        if (w) { try { w.close(); } catch { /* closed */ } s.resources.delete(w); }
+        s.watches.delete(id);
+        s.watchPerm.delete(id);
+      }
+      for (const [taskId, idx] of [...s.reportWatchPerm]) {
+        if (!off.has(idx)) continue;
+        const w = s.reportWatches.get(taskId);
+        if (w) { try { w.close(); } catch { /* closed */ } s.resources.delete(w); }
+        s.reportWatches.delete(taskId);
+        s.reportWatchPerm.delete(taskId);
+      }
+      if (dropped) this.audit.write(cardId, "grant-dropped", `${dropped} grant(s) dropped: switched off by you`);
+    }
   }
 
   private async dispatch(s: CardSession, m: string, a: unknown[]): Promise<unknown> {
@@ -344,7 +407,7 @@ export class Broker {
         const ctl = new AbortController();
         s.inflight.add(ctl);
         try {
-          return await brokerRequest(raw, this.approval(s).permissions, {
+          return await brokerRequest(raw, this.activePermissions(s), {
             ...this.opts.net,
             signal: ctl.signal,
             onHop: (h) => this.audit.write(s.cardId, "net", `${h.method} ${h.url} -> ${h.address}`),
@@ -369,6 +432,7 @@ export class Broker {
       const w = s.watches.get(id);
       if (!w) throw new HostError("NotFound", "no such watch");
       s.watches.delete(id);
+      s.watchPerm.delete(id);
       s.resources.delete(w);
       w.close();
       return null;
@@ -388,7 +452,8 @@ export class Broker {
         this.countDenial(s);
         throw new HostError("PermissionDenied", "cards can never access the Dashboard's own folder");
       }
-      const perm = this.grant(s, { type: fsType, path }, `${fsType} ${path}`) as Extract<Permission, { type: "fs.read" | "fs.write" | "fs.delete" }>;
+      const permIdx = this.grantIndex(s, { type: fsType, path }, `${fsType} ${path}`);
+      const perm = this.approval(s).permissions[permIdx] as Extract<Permission, { type: "fs.read" | "fs.write" | "fs.delete" }>;
       // The helper runs the full file check protocol against the scope of the covering permission.
       const ctx = { instanceRoot: this.opts.instanceRoot, scope: { path: this.opts.resolvePath(perm.path), recursive: perm.recursive ?? false } };
       const op = m.slice(3);
@@ -398,7 +463,10 @@ export class Broker {
           const stop = await this.services.files.watch(path, ctx, (ev) => this.emit(s, `fs.watch:${id}`, ev));
           const res: Closeable = { close: stop };
           if (s.ended) { stop(); throw new HostError("IOError", "the card stopped"); }
+          // Switched off while the watch was being set up: do not keep it.
+          if (offSet(this.approval(s)).has(permIdx)) { stop(); throw new HostError("PermissionDenied", `switched off by you: ${fsType} ${path}`); }
           s.watches.set(id, res);
+          s.watchPerm.set(id, permIdx);
           s.resources.add(res);
           return id;
         }
@@ -416,7 +484,7 @@ export class Broker {
 
     if (m.startsWith("reports.")) {
       const taskId = str(a[0], "taskId", 80);
-      this.grant(s, { type: "reports.read", taskId }, `reports of ${taskId}`);
+      const reportIdx = this.grantIndex(s, { type: "reports.read", taskId }, `reports of ${taskId}`);
       const feeds = this.services.reports;
       if (!feeds.isFeed(taskId)) throw new HostError("NotFound", `${taskId} is not a watched feed (File > Options > Feeds)`);
       switch (m) {
@@ -427,12 +495,13 @@ export class Broker {
           const stop = feeds.onChange(taskId, (st) => this.emit(s, `reports:${taskId}`, st));
           const res: Closeable = { close: stop };
           s.reportWatches.set(taskId, res);
+          s.reportWatchPerm.set(taskId, reportIdx);
           s.resources.add(res);
           return null;
         }
         case "reports.unwatch": {
           const w = s.reportWatches.get(taskId);
-          if (w) { w.close(); s.reportWatches.delete(taskId); s.resources.delete(w); }
+          if (w) { w.close(); s.reportWatches.delete(taskId); s.reportWatchPerm.delete(taskId); s.resources.delete(w); }
           return null;
         }
       }

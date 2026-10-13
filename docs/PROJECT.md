@@ -93,6 +93,14 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 - [x] Portable packaged build: `npm run package` writes `Build/app/Dashboard.exe` (electron-builder 26.15.3, unpacked folder); `npm run setup:shortcut` made `Build/Dashboard.lnk`. All 16 e2e tests pass on the packaged exe (`DASH_EXE=...`). Done 2026-10-09.
 - [ ] **User: test the packaged Dashboard** (`Build\Dashboard.lnk`). Electron fuses are still default (deferred decision; see Open questions).
 
+### Before building container card workers (user request 2026-10-13: remind the user when this work starts)
+- [ ] Remind the user of the rule changes in INFRASTRUCTURE.md, "Required rule changes before building", and get explicit approval for each.
+- [ ] CLAUDE.md hard constraint ("Cards never get Node.js…"): amend for sealed worker containers only.
+- [ ] RULES.md host invariant 7: add container workers as an allowed place for worker code.
+- [ ] RULES.md host invariant 11, manifest schema, VALIDATOR.md: only if cards may run programs inside their container.
+- [ ] GENERATOR-PROMPT.md and the RULES.md generator rules: describe the container worker runtime.
+- [ ] ARCHITECTURE.md: add the container topology.
+
 ## Decision log
 | Date | Decision | Reason |
 |---|---|---|
@@ -163,6 +171,9 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-09 | **Incident**: the first e2e run on the packaged exe switched "Start with Windows" on and timed out before switching it off, leaving `electron.app.Dashboard` in the user's HKCU Run key. Claude removed exactly that value (the user's other entries untouched) and added `DASHBOARD_NO_LOGIN_ITEM=1`, which test runs always set; it can only disable the feature | Tests must never change the user's Windows settings. |
 | 2026-10-09 | Race tests: the swapper repairs its own state after a failed step (real folder parked, leftover at its place) | The user's first host-suite run failed TOCTOU on a stuck swapper (one link:EBUSY, then 1170 park:EPERM; 126 swaps) - no leak, no planted file; a test bug, not a host bug. |
 | 2026-10-09 | Every generator run saves its output stream (and stderr) to `Build/data/generator/runs/<card>/<request>/attempt-N.jsonl`; a failure shows Claude Code's refused tool calls and Claude's last reply | The first real generation failed 4 times with no file written and nothing to show why: the only record was the CLI's transcript in data/claude, which the Dashboard never reads. |
+| 2026-10-13 | **Card workers will run in containers, one per card** (planned; INFRASTRUCTURE.md "Container card workers"): card UIs stay in Electron; workers on an internal network with no route out; NATS bus with per-card credentials and subjects; internet only through an egress gateway with broker-issued grants; workers start on demand; monitoring from points cards can't control (rules first, then statistics, a neural model later as an experiment); alerts escalate to LASS | User decision after discussion with Claude and advice from the user's IT friend (network isolation modes, message queues, ephemeral containers). Gains: kernel-level offline guarantee, an independent witness, standard tooling, per-card limits, expansion points, a path to cards using real programs (needs invariant 11 amended). Cost: about 3–5 working days at the project's pace, about a week with snags, including re-proving A1–A11 (corrected 2026-10-13 from "1–2 weeks"). |
+| 2026-10-13 | **Containers run on Podman, built to move to Kubernetes later** (INFRASTRUCTURE.md): standard images, Kubernetes YAML run with `podman kube play`, no state in containers, secrets as files, an own egress proxy for all outbound traffic, gVisor where available, one container-backend interface in the Dashboard | User decision. Podman is free with no conditions, runs on Windows 11 Home (through WSL2), is rootless by default and has no privileged central service. The rules keep a later move to Kubernetes a matter of configuration plus one backend module. |
+| 2026-10-13 | The generator's request header lists every watched feed (Options > Feeds) as `task-id  name`; a request may name the task instead of quoting its id | The first celestial-watch card request failed 4 times: the request named the task but not its id, and nothing in the request folder had it, so Claude correctly wrote nothing. Names come from options.json (the user's own file); control characters are stripped so a name cannot add header lines. |
 | 2026-10-09 | **"Test the new CLI version" button** on the Claude card when the installed CLI build is not on the tested list (or its testing is incomplete); runs the spike on a click; candidates install side by side and never replace the active approved build; switching builds is a user click | User requirement. Design details by Claude (ARCHITECTURE.md "Claude card: CLI test states"). |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)

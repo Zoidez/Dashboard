@@ -11,10 +11,10 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "npm run build && electron . --instance=Build",
-    "test:unit": "node --import tsx --test \"test/unit/**/*.test.ts\"",
+    "test:unit": "node scripts/run-tests.mjs test/unit",
     "test:e2e": "npm run build && playwright test -c test/e2e/playwright.config.ts",
     "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
-    "test:race": "node --import tsx --test test/race/*.test.ts",
+    "test:race": "node scripts/run-tests.mjs test/race",
     "test:host-suite": "node scripts/record-host-suite.mjs --instance=Build",
     "package": "node scripts/package.mjs --instance=Build",
     "setup:shortcut": "powershell -ExecutionPolicy Bypass -File scripts/make-shortcut.ps1"

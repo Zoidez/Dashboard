@@ -22,10 +22,14 @@ button:hover { border-color: var(--accent); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button.link { border: none; color: var(--accent); background: none; }
 button.danger { color: var(--err); }
-#grid { flex: 1; overflow: auto; padding: 12px; }
+#grid { flex: 1; overflow: auto; padding: 6px; }
 .empty { color: var(--muted); }
-.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: 80px; grid-auto-flow: row dense; gap: 12px; }
-.frame { position: relative; display: flex; flex-direction: column; padding-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; min-width: 0; }
+/* Fine grid: 96 columns x 10 px rows, no track gap; the 12 px space between cards is the frames' 6 px margins. */
+.grid { position: relative; display: grid; grid-template-columns: repeat(96, minmax(0, 1fr)); grid-auto-rows: 10px; grid-auto-flow: row dense; gap: 0; }
+/* Resize outline: follows the pointer pixel for pixel; the card snaps to it on release. */
+.resize-ghost { position: absolute; z-index: 10; pointer-events: none; box-sizing: border-box; border: 2px dashed var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, transparent); display: flex; align-items: flex-end; justify-content: flex-end; }
+.resize-ghost span { margin: 6px 8px; padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); }
+.frame { position: relative; margin: 6px; display: flex; flex-direction: column; padding-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; min-width: 0; }
 .frame.dragging { opacity: .5; }
 .frame[data-accent="low"] { border-color: var(--acc-low); }
 .frame[data-accent="medium"] { border-color: var(--acc-medium); }
@@ -42,7 +46,7 @@ button.danger { color: var(--err); }
 .frame .body { flex: 1; min-height: 0; }
 .frame .reason { padding: 10px; margin: 0; color: var(--muted); }
 /* The handle sits in the strip below the body: the card view covers the body itself. */
-.frame .resize { position: absolute; right: 0; bottom: 0; width: 28px; height: 8px; cursor: nwse-resize; background: repeating-linear-gradient(90deg, var(--border) 0 2px, transparent 2px 4px); }
+.frame .resize { position: absolute; right: 0; bottom: 0; width: 28px; height: 8px; cursor: nwse-resize; touch-action: none; background: repeating-linear-gradient(90deg, var(--border) 0 2px, transparent 2px 4px); }
 
 /* The New card (host-drawn, not a card view) */
 .newcard-frame .bar { cursor: default; }
@@ -58,3 +62,32 @@ button.danger { color: var(--err); }
 .newcard .hint { color: var(--muted); font-size: 12px; margin: 0; }
 button.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; }
 button:disabled { opacity: .55; cursor: default; }
+
+/* Grant: undoes a revoke (green) */
+button.grant { color: var(--surface); background: var(--ok); border-color: var(--ok); font-weight: 600; }
+button.grant:hover { filter: brightness(1.08); border-color: var(--ok); }
+
+/* On/off switch (renderer/toggle.tsx) */
+.toggle { position: relative; display: inline-flex; flex: 0 0 auto; cursor: pointer; }
+.toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: inherit; }
+.toggle .track { width: 30px; height: 16px; border-radius: 8px; background: var(--border); transition: background .12s; display: inline-block; position: relative; }
+.toggle .thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 15%, transparent); transition: transform .12s; }
+.toggle input:checked + .track { background: var(--ok); }
+.toggle input:checked + .track .thumb { transform: translateX(14px); }
+.toggle input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 1px; }
+.toggle input:disabled + .track { opacity: .45; }
+.toggle:has(input:disabled) { cursor: default; }
+
+/* Permission button in a card's title bar, and its drop-down */
+.frame .actions button.perm-btn { padding: 0 4px; display: inline-flex; align-items: center; color: var(--muted); }
+.frame .actions button.perm-btn:hover, .frame .actions button.perm-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.frame .actions button.perm-btn.some-off { color: var(--warn); border-color: var(--warn); }
+.perm-menu { position: fixed; z-index: 50; min-width: 220px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px color-mix(in srgb, #000 22%, transparent); }
+.perm-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; }
+.perm-row:hover { background: var(--bg); }
+.perm-icon { display: inline-flex; width: 18px; justify-content: center; color: var(--fg); }
+.perm-row.off .perm-icon, .perm-row.none .perm-icon { color: var(--muted); }
+.perm-label { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
+.perm-note { font-size: 11px; color: var(--muted); }
+.perm-row.off .perm-note { color: var(--warn); }
+.perm-row.none { opacity: .7; }

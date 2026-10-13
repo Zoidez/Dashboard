@@ -52,6 +52,8 @@ export interface PipelineDeps {
   hostApiDts: () => string;
   tsLibDir?: string;
   feedTaskIds: () => string[];
+  /** Watched feeds with their names, shown to the generator in the request header (2026-10-13). */
+  feeds?: () => ReadonlyArray<{ taskId: string; name: string }>;
   installedInfo: (cardId: string) => { version: string; permissions: Permission[]; files: Record<string, string> } | null;
   smoke: (card: LoadedCard) => Promise<string[]>;
   streamsOf?: (p: string) => string[];
@@ -142,7 +144,7 @@ export class GeneratorPipeline extends EventEmitter {
       let sessionId: string | undefined;
       if (kind === "update") { try { sessionId = (JSON.parse(await fsp.readFile(sessionFile, "utf8")) as { sessionId?: string }).sessionId; } catch { /* new conversation */ } }
       const sys = systemPrompt(this.d.docs());
-      let prompt = userMessage({ cardId, kind, preset: req.preset }, req.text);
+      let prompt = userMessage({ cardId, kind, preset: req.preset, feeds: this.d.feeds?.() }, req.text);
 
       // Each run's output stream, for the user and for diagnosis (the CLI's own transcript lives in data/claude, which the Dashboard never reads).
       const runDir = join(this.d.paths.generator, "runs", cardId, requestId);

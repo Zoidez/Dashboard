@@ -9,7 +9,9 @@ import { join } from "node:path";
 
 export type AuditKind =
   | "grant" | "grant-dropped" | "denied" | "blocked-request" | "net" | "fs" | "session-start" | "session-end"
-  | "card-refused" | "card-flagged" | "approval-mismatch" | "invalid-message" | "reserved-call" | "browser-permission";
+  | "card-refused" | "card-flagged" | "approval-mismatch" | "invalid-message" | "reserved-call" | "browser-permission"
+  /** The user switched a permission off/on, revoked or granted an approval; a request refused because its permission is off. */
+  | "permission-change" | "paused";
 
 export interface AuditEntry {
   at: string;

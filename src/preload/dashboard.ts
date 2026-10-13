@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("dashboardHost", {
   sendRects(rects: unknown): void { ipcRenderer.send("dashboard:rects", rects); },
   saveLayout(update: unknown): void { ipcRenderer.send("dashboard:layout", update); },
   cardAction(cardId: unknown, action: unknown): void { ipcRenderer.send("dashboard:card-action", cardId, action); },
+  cardPermission(cardId: unknown, category: unknown, on: unknown): void { ipcRenderer.send("dashboard:card-permission", cardId, category, on); },
   openOptions(): void { ipcRenderer.send("dashboard:open-options"); },
   // The New card: the only place a generation can start (host invariant 1).
   newCardStart(req: unknown): void { ipcRenderer.send("new:start", req); },

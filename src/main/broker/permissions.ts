@@ -24,6 +24,22 @@ export type CapabilityRequest =
   | { type: "reports.read"; taskId: string }
   | { type: "links.open"; url: URL };
 
+/**
+ * The four groups the user switches on and off (grid permission menu; Options > Cards > Details).
+ * links.open counts as web: opening a link sends data to that site just like a request does.
+ */
+export type PermissionCategory = "web" | "files" | "system" | "reports";
+export const PERMISSION_CATEGORIES: readonly PermissionCategory[] = ["web", "files", "system", "reports"];
+
+export function categoryOf(p: { type: Permission["type"] }): PermissionCategory {
+  switch (p.type) {
+    case "net.http": case "links.open": return "web";
+    case "fs.read": case "fs.write": case "fs.delete": return "files";
+    case "sysinfo": return "system";
+    case "reports.read": return "reports";
+  }
+}
+
 /** "/api" covers "/api" and "/api/x", not "/apix". "/" covers everything. */
 export function pathPrefixCovers(prefix: string, path: string): boolean {
   if (prefix === "/" || prefix === "") return true;
@@ -43,9 +59,10 @@ export function fsScopeCovers(scope: string, recursive: boolean, target: string)
   return recursive || !t.slice(s.length + 1).includes("\\");
 }
 
-/** Index of the first permission that covers the request, or -1. */
-export function findCovering(perms: readonly Permission[], req: CapabilityRequest, resolvePath: (p: string) => string): number {
+/** Index of the first permission that covers the request, or -1. `skip` leaves out permissions (those switched off). */
+export function findCovering(perms: readonly Permission[], req: CapabilityRequest, resolvePath: (p: string) => string, skip?: (index: number) => boolean): number {
   for (let i = 0; i < perms.length; i++) {
+    if (skip?.(i)) continue;
     const p = perms[i];
     if (p.type !== req.type) continue;
     switch (req.type) {

@@ -12,7 +12,7 @@
  *      keeps the other end bound to a broker session. That binding is the card's identity.
  * Any end of the view (Stop, Revoke, crash, reload, navigation, close, quit) ends the broker session.
  */
-import { app, ipcMain, MessageChannelMain, nativeTheme, WebContentsView, type BaseWindow, type WebContents, type Session } from "electron";
+import { app, ipcMain, MessageChannelMain, nativeTheme, View, WebContentsView, type BaseWindow, type WebContents, type Session } from "electron";
 import { promises as fsp, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, posix } from "node:path";
 import type { AuditLog } from "../audit.js";
@@ -39,6 +39,8 @@ export interface RunningCard {
   manifest: Manifest;
   approval: ApprovalRecord;
   view: WebContentsView;
+  /** Plain parent view, sized to the visible part of the frame body; it clips the card view. */
+  clip: View;
   session: Session;
   broker: CardSession | null;
   pid: number | null;
@@ -134,21 +136,34 @@ export class CardHost {
     return !!a && !a.revoked;
   }
 
-  /** Places each running card's view at the rectangle the grid page reported (validated, clamped). */
+  /**
+   * Places each running card's view at the rectangle the grid page reported (validated, clamped).
+   * A card partly scrolled out of the grid stays shown, clipped to its visible part: the card view keeps
+   * its full size inside a parent view whose bounds are the visible part. Hidden only when no part of
+   * the frame body is visible (user request 2026-10-10: cull only completely hidden cards).
+   */
   applyRects(rects: unknown): void {
     if (!Array.isArray(rects)) return;
     const { width: W, height: H } = this.opts.window.getContentBounds();
+    const LIM = 100_000;
     for (const r of rects.slice(0, 500) as Array<Record<string, unknown>>) {
       const card = typeof r?.cardId === "string" ? this.cards.get(r.cardId) : undefined;
       if (!card || card.stopping) continue;
       const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : NaN);
+      const c = (r.clip && typeof r.clip === "object" ? r.clip : {}) as Record<string, unknown>;
       const x = n(r.x), y = n(r.y), w = n(r.width), h = n(r.height);
-      if ([x, y, w, h].some(Number.isNaN) || r.visible !== true || w < 20 || h < 20 || x < 0 || y < 0 || x + w > W || y + h > H) {
-        card.view.setVisible(false);
+      const cx = n(c.x), cy = n(c.y), cw = n(c.width), ch = n(c.height);
+      // The visible part: the reported clip, cut to the frame body itself and to the window.
+      const L = Math.max(cx, x, 0), T = Math.max(cy, y, 0), R = Math.min(cx + cw, x + w, W), B = Math.min(cy + ch, y + h, H);
+      if ([x, y, w, h, cx, cy, cw, ch].some(Number.isNaN) || r.visible !== true || w < 20 || h < 20 || w > LIM || h > LIM
+        || Math.abs(x) > LIM || Math.abs(y) > LIM || R - L < 1 || B - T < 1) {
+        card.clip.setVisible(false);
         continue;
       }
-      card.view.setBounds({ x, y, width: w, height: h });
+      card.clip.setBounds({ x: L, y: T, width: R - L, height: B - T });
+      card.view.setBounds({ x: x - L, y: y - T, width: w, height: h });
       card.view.setVisible(true);
+      card.clip.setVisible(true);
     }
   }
 
@@ -217,10 +232,13 @@ export class CardHost {
     });
     view.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
     view.setVisible(false);                                  // shown once the grid reports where its frame is
+    const clip = new View();                                 // clips the card view to the visible part of its frame
+    clip.setVisible(false);
+    clip.addChildView(view);
 
     let resolveChecked!: () => void, rejectChecked!: (e: Error) => void;
     const card: RunningCard = {
-      cardId, name: manifest.name, manifest, approval, view, session: ses, broker: null, pid: null, rights: null,
+      cardId, name: manifest.name, manifest, approval, view, clip, session: ses, broker: null, pid: null, rights: null,
       processChecked: new Promise<void>((res, rej) => { resolveChecked = res; rejectChecked = rej; }),
       status: { state: "starting" }, accent: "neutral", stopping: false, tickSeq: 0,
     };
@@ -251,7 +269,7 @@ export class CardHost {
     view.webContents.once("did-navigate", runCheck);
     card.runCheck = runCheck;
 
-    this.opts.window.contentView.addChildView(view);
+    this.opts.window.contentView.addChildView(clip);
     this.opts.onChange();
     try { await view.webContents.loadURL(`card://${cardId}/`); }
     catch (e) { if (!card.stopping) this.stop(cardId, `could not load: ${(e as Error).message}`, "error"); return false; }
@@ -354,7 +372,8 @@ export class CardHost {
     this.cards.delete(cardId);
     this.stopped.set(cardId, { name: card.name, status: { state, message: reason } });
     if (state === "refused") this.audit.write(cardId, "card-refused", reason);
-    try { this.opts.window.contentView.removeChildView(card.view); } catch { /* window gone */ }
+    try { card.clip.removeChildView(card.view); } catch { /* already removed */ }
+    try { this.opts.window.contentView.removeChildView(card.clip); } catch { /* window gone */ }
     try { if (!card.view.webContents.isDestroyed()) card.view.webContents.close({ waitForBeforeUnload: false }); } catch { /* already closed */ }
     try { void card.session.protocol.unhandle("card"); } catch { /* session gone */ }
     this.opts.onChange();
@@ -500,7 +519,35 @@ export class CardHost {
   /** Revoke: removes the approval (written to disk first in memory), which also stops the card. */
   async revoke(cardId: string): Promise<void> {
     await this.approvals.revoke(cardId);
+    this.audit.write(cardId, "permission-change", "approval revoked by you");
     this.stop(cardId, "approval revoked", "stopped");
+  }
+
+  /**
+   * Grant: undoes a revoke and starts the card again. The start re-checks everything as usual: the
+   * files on disk must still hash exactly to the approved version, or the card is refused.
+   */
+  async restoreApproval(cardId: string): Promise<boolean> {
+    if (!CARD_ID_RE.test(cardId) || this.cards.has(cardId)) return false;
+    if (!(await this.approvals.unrevoke(cardId))) return false;
+    this.audit.write(cardId, "permission-change", "approval granted again by you");
+    this.stopped.delete(cardId);
+    return this.start(cardId);
+  }
+
+  /**
+   * Switches approved permissions off or on (by index into the approval's permission list). Effective
+   * immediately: the broker refuses switched-off permissions from the next call on and cuts what runs
+   * under them now (permissionsChanged). The choice is saved with the approval and survives restarts.
+   */
+  async setPermissions(cardId: string, indices: readonly number[], on: boolean): Promise<void> {
+    const rec = this.approvals.get(cardId);
+    if (!rec || rec.revoked) return;
+    const changed = await this.approvals.setOff(cardId, indices, !on);
+    if (!changed.length) return;
+    this.broker.permissionsChanged(cardId);
+    for (const i of changed) this.audit.write(cardId, "permission-change", `${rec.permissions[i].type} #${i} switched ${on ? "on" : "off"} by you`);
+    this.opts.onChange();
   }
 
   stopAll(reason: string): void {

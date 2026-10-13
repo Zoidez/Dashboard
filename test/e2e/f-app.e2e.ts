@@ -20,28 +20,56 @@ test("F: grid places views, saves layout, Stop/Start/Revoke, Options, close to t
     await page.waitForSelector('section[data-card="card-b"]');
     await waitFor(async () => (await snapshot(app)).running.every((c) => c.status.state === "ok") && (await snapshot(app)).running.length === 2, "both cards ok");
 
-    // Each view sits exactly on its frame body and is visible.
+    // Each view sits exactly on its frame body and is visible. The view's bounds are relative to its clip
+    // view, so its window position is clip origin + view origin.
+    const placement = () => app.evaluate(() => [...(globalThis as any).__dashboard.host.cards.values()].map((c: any) => {
+      const cb = c.clip.getBounds(), vb = c.view.getBounds();
+      return { id: c.cardId, b: { x: cb.x + vb.x, y: cb.y + vb.y, width: vb.width, height: vb.height }, clip: cb, visible: c.clip.getVisible() && c.view.getVisible() };
+    }));
     const placed = await waitFor(async () => {
-      const views = await app.evaluate(() => [...(globalThis as any).__dashboard.host.cards.values()].map((c: any) => ({ id: c.cardId, b: c.view.getBounds(), visible: c.view.getVisible() })));
+      const views = await placement();
       return views.every((v: any) => v.visible) ? views : null;
     }, "views to be placed");
     for (const v of placed as Array<{ id: string; b: { x: number; y: number; width: number; height: number } }>) {
       const r = await page.locator(`section[data-card="${v.id}"] .body`).boundingBox();
       expect(Math.abs(v.b.x - r!.x) + Math.abs(v.b.y - r!.y) + Math.abs(v.b.width - r!.width) + Math.abs(v.b.height - r!.height), v.id).toBeLessThanOrEqual(4);
     }
-    // Manifest defaultSize is used: card A spans 4 columns x 3 rows.
-    expect(await page.locator('section[data-card="card-a"]').getAttribute("style")).toContain("span 4");
+    // A partly hidden card stays shown, clipped to its visible part (user request 2026-10-10).
+    const fullSize = (await app.evaluate(() => (globalThis as any).__dashboard.win.getContentSize())) as [number, number];
+    await app.evaluate(() => (globalThis as any).__dashboard.win.setContentSize(900, 260));
+    const clipped = await waitFor(async () => {
+      const views = await placement();
+      const a = views.find((v: any) => v.id === "card-a");
+      return a && a.visible && a.clip.height < a.b.height ? a : null;
+    }, "card A shown clipped");
+    expect(clipped.clip.height).toBeGreaterThan(0);
+    // Pushed completely out of view (a tall spacer above it): hidden.
+    await page.evaluate(() => {
+      const sp = document.createElement("div");
+      sp.id = "e2e-spacer"; sp.style.gridColumn = "1 / -1"; sp.style.gridRow = "1 / span 120";
+      document.querySelector("#grid .grid")!.prepend(sp);
+      window.dispatchEvent(new Event("resize"));
+    });
+    await waitFor(async () => ((await placement()).find((v: any) => v.id === "card-a")?.visible === false ? true : null), "card A hidden when fully out of view");
+    await page.evaluate(() => { document.getElementById("e2e-spacer")?.remove(); window.dispatchEvent(new Event("resize")); });
+    await app.evaluate((_e, s) => (globalThis as any).__dashboard.win.setContentSize(s[0], s[1]), fullSize);
+    await waitFor(async () => ((await placement()).every((v: any) => v.visible) ? true : null), "views shown again");
+
+    // Manifest defaultSize is used, converted to the fine grid: 4 coarse columns = 32 fine columns.
+    expect(await page.locator('section[data-card="card-a"]').getAttribute("style")).toContain("span 32");
 
     // Resize card B with the handle, then check layout.json.
     const handle = page.locator('section[data-card="card-b"] .resize');
     const hb = (await handle.boundingBox())!;
+    const wBefore = Number(/grid-column: span (\d+)/.exec((await page.locator('section[data-card="card-b"]').getAttribute("style")) ?? "")?.[1]);
     await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
     await page.mouse.down();
     await page.mouse.move(hb.x + 260, hb.y + 100, { steps: 8 });
     await page.mouse.up();
     const saved = await waitFor(() => { try { return JSON.parse(readFileSync(join(inst, "data", "layout.json"), "utf8")); } catch { return null; } }, "layout.json");
     console.log("layout:", JSON.stringify(saved));
-    expect(saved.sizes["card-b"].w).toBeGreaterThan(4);
+    expect(saved.unit).toBe("fine-96x10");
+    expect(saved.sizes["card-b"].w).toBeGreaterThan(wBefore);
     expect(saved.order).toEqual(["card-a", "card-b"]);
 
     // Stop and Start from the grid buttons.

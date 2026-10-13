@@ -10,10 +10,14 @@ table.list { border-collapse: collapse; width: 100%; }
 table.list th, table.list td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
 table.list th { font-weight: 600; color: var(--muted); }
 .card-detail { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 10px 0; background: var(--surface); }
-.perm { margin: 6px 0; }
+.perm { margin: 6px 0; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
+.perm > :not(.toggle) { grid-column: 2; }
+.perm > .toggle { grid-row: 1; grid-column: 1; }
 .perm .reason { color: var(--muted); font-size: 12px; }
+.perm.off { color: var(--muted); }
 .mark { font-size: 12px; padding: 1px 6px; border-radius: 3px; margin-left: 6px; border: 1px solid currentColor; }
 .mark.red { color: var(--err); }
 .mark.yellow { color: var(--warn); }
+.mark.off { color: var(--muted); }
 .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
 select, input[type=number] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }

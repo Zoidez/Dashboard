@@ -8,7 +8,7 @@ All design lives in `docs\`. Read in this order:
 2. `docs\RULES.md` — host invariants (enforced in code), generator rules, CLI rules
 3. `docs\ARCHITECTURE.md` — the wrapper (capability broker), process model, storage, pipeline
 4. `docs\PRESETS.md` — card presets (watch feed) and the report format
-5. As the task needs: `docs\PERMISSIONS.md`, `docs\VALIDATOR.md`, `docs\GENERATOR-PROMPT.md`, `docs\CARDS.md`, `docs\TESTPLAN.md`
+5. As the task needs: `docs\PERMISSIONS.md`, `docs\VALIDATOR.md`, `docs\GENERATOR-PROMPT.md`, `docs\CARDS.md`, `docs\TESTPLAN.md`, `docs\NEW-FEED-CARD.md` (procedure for feed cards), `docs\LASS.md` (proposal), `docs\INFRASTRUCTURE.md` (container rules: Podman now, Kubernetes-ready; follow them for anything that runs in a container)
 
 Machine-readable specs are in `spec\` (manifest schema, host API, report schema, CLI approval schema).
 
@@ -19,6 +19,7 @@ Machine-readable specs are in `spec\` (manifest schema, host API, report schema,
 - **Portable instance.** Everything the app writes stays under `Build\`. Never %APPDATA%, never the user profile.
 - **Security comes first.** The host invariants in `docs\RULES.md` are not negotiable; if a task conflicts with one, stop and say so.
 - Cards never get Node.js, direct network, DLL calls, program launching, or Claude.
+- **Reminder (user request 2026-10-13):** before starting any work on container card workers (`docs\INFRASTRUCTURE.md`, "Container card workers"), stop and remind the user that the rule above, host invariants 7 and 11, and the other items in "Required rule changes before building" must be changed first. Get the user's explicit approval for each change before writing any code for it.
 
 ## Do not touch
 - `Build\data\claude\` — the generator's CLI config and **login token**. Never read, copy, print or move anything in it (RULES.md, Binary and config 3).

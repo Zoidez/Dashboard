@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CardAction, OptionsPatch, OptionsState } from "../shared/ui-state.js";
+import { Toggle } from "./toggle.js";
 
 declare global {
   interface Window {
@@ -12,6 +13,7 @@ declare global {
       get(): Promise<OptionsState>;
       set(p: OptionsPatch): Promise<OptionsState>;
       cardAction(cardId: string, a: CardAction): Promise<OptionsState>;
+      cardPermission(cardId: string, index: number, on: boolean): Promise<OptionsState>;
       audit(cardId: string): Promise<Array<{ at: string; kind: string; detail: string }>>;
       onChanged(cb: () => void): void;
     };
@@ -36,7 +38,7 @@ function App() {
       <div className="panel" role="tabpanel">
         {tab === "General" && <General s={s} set={(p) => host.set(p).then(setS)} />}
         {tab === "Feeds" && <Feeds s={s} set={(p) => host.set(p).then(setS)} />}
-        {tab === "Cards" && <Cards s={s} act={(id, a) => host.cardAction(id, a).then(setS)} />}
+        {tab === "Cards" && <Cards s={s} act={(id, a) => host.cardAction(id, a).then(setS)} perm={(id, i, on) => host.cardPermission(id, i, on).then(setS)} />}
         {tab === "Claude" && <Claude s={s} />}
         {tab === "Security log" && <Security s={s} />}
       </div>
@@ -89,7 +91,7 @@ function Feeds({ s, set }: { s: OptionsState; set: (p: OptionsPatch) => void }) 
   );
 }
 
-function Cards({ s, act }: { s: OptionsState; act: (id: string, a: CardAction) => void }) {
+function Cards({ s, act, perm }: { s: OptionsState; act: (id: string, a: CardAction) => void; perm: (id: string, index: number, on: boolean) => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const [log, setLog] = useState<Array<{ at: string; kind: string; detail: string }>>([]);
   useEffect(() => { if (open) void host.audit(open).then(setLog); }, [open, s]);
@@ -102,11 +104,12 @@ function Cards({ s, act }: { s: OptionsState; act: (id: string, a: CardAction) =
           <div className="row">
             <strong>{c.name}</strong>
             <span className="hint mono">{c.cardId}</span>
-            <span>{c.revoked ? "approval revoked" : c.running ? "running" : c.state}{c.message ? `: ${c.message}` : ""}</span>
+            <span>{c.revoked ? "approval revoked" : `${c.running ? "running" : c.state}${c.message ? `: ${c.message}` : ""}`}</span>
             <span style={{ flex: 1 }} />
             {c.running && <button onClick={() => act(c.cardId, "stop")}>Stop</button>}
             {!c.running && !c.revoked && c.versionHash && <button onClick={() => act(c.cardId, "start")}>Start</button>}
             {!c.revoked && c.versionHash && <button className="danger" onClick={() => act(c.cardId, "revoke")}>Revoke</button>}
+            {c.revoked && c.versionHash && <button className="grant" onClick={() => act(c.cardId, "grant")} title="Undo the revoke and start the card again">Grant</button>}
             <button className="link" onClick={() => setOpen(open === c.cardId ? null : c.cardId)}>{open === c.cardId ? "Hide details" : "Details"}</button>
           </div>
           {open === c.cardId && (
@@ -114,10 +117,15 @@ function Cards({ s, act }: { s: OptionsState; act: (id: string, a: CardAction) =
               <div className="hint">Approved {when(c.approvedAt)} · version hash <span className="mono">{c.versionHash ?? "—"}</span></div>
               <h4>Permissions</h4>
               {c.permissions.length === 0 && <p className="hint">None.</p>}
+              {c.permissions.length > 0 && <p className="hint">{c.revoked ? "The approval is revoked: nothing is allowed. Grant restores these switches as they were." : "Switch a permission off to stop the card using it right away. The card keeps running; what needs that permission fails until you switch it on again."}</p>}
               {c.permissions.map((p, i) => (
-                <div className="perm" key={i}>
-                  {p.text}
-                  {p.marks.map((m, j) => <span key={j} className={`mark ${m.level}`} title={m.why}>{m.level === "red" ? "red" : "yellow"} {m.tag}</span>)}
+                <div className={`perm${p.on && !c.revoked ? "" : " off"}`} key={i}>
+                  <Toggle on={p.on && !c.revoked} disabled={c.revoked || !c.versionHash} label={`${p.on ? "Switch off" : "Switch on"}: ${p.text}`} onChange={(on) => perm(c.cardId, i, on)} />
+                  <span>
+                    {p.text}
+                    {!p.on && <span className="mark off">off</span>}
+                    {p.marks.map((m, j) => <span key={j} className={`mark ${m.level}`} title={m.why}>{m.level === "red" ? "red" : "yellow"} {m.tag}</span>)}
+                  </span>
                   <div className="reason">Card says: {p.reason}</div>
                   {p.marks.map((m, j) => <div key={j} className="reason">{m.why}</div>)}
                 </div>
