@@ -8,7 +8,7 @@ All design lives in `docs\`. Read in this order:
 2. `docs\RULES.md` — host invariants (enforced in code), generator rules, CLI rules
 3. `docs\ARCHITECTURE.md` — the wrapper (capability broker), process model, storage, pipeline
 4. `docs\PRESETS.md` — card presets (watch feed) and the report format
-5. As the task needs: `docs\PERMISSIONS.md`, `docs\VALIDATOR.md`, `docs\GENERATOR-PROMPT.md`, `docs\CARDS.md`, `docs\TESTPLAN.md`, `docs\NEW-FEED-CARD.md` (procedure for feed cards), `docs\LASS.md` (proposal), `docs\INFRASTRUCTURE.md` (container rules: Podman now, Kubernetes-ready; follow them for anything that runs in a container)
+5. As the task needs: `docs\PERMISSIONS.md`, `docs\VALIDATOR.md`, `docs\GENERATOR-PROMPT.md`, `docs\CARDS.md`, `docs\TESTPLAN.md`, `docs\NEW-FEED-CARD.md` (procedure for feed cards), `docs\LASS.md` (proposal), `docs\INFRASTRUCTURE.md` (container rules: Podman now, Kubernetes-ready; follow them for anything that runs in a container), `docs\THEMES.md` (colour and font themes)
 
 Machine-readable specs are in `spec\` (manifest schema, host API, report schema, CLI approval schema).
 
@@ -41,7 +41,8 @@ Built 2026-10-09 (see `docs\PROJECT.md`, Status): runtime, broker, file access, 
 - **New docs:** `NEW-FEED-CARD.md` (procedure), `LASS.md` (proposal, not approved), `INFRASTRUCTURE.md` (Podman decided; container card workers planned; rule changes required first; see the reminder under Hard constraints).
 - **Podman:** `setup\install-podman.ps1` installs the client portably (`Build\data\vendor\podman\<version>\`; config and data in `Build\data\podman\` via `env.ps1`). Written, not yet run. The user installs WSL first (`wsl.exe --install --no-distribution`, admin, reboot).
 - **Celestial watch task:** its prompt has the report step since 2026-10-16 (list format for the card: `sources` titles `section | headline | source | date`). The user still has to turn on "Require this computer" and connect its folder before reports arrive.
-- **Next, in order:** first push to GitHub (after the history scan); package + host suite; user confirms the grid fixes; celestial card once its first report has arrived; then the Podman verification script (`INFRASTRUCTURE.md`, open items).
+- **Themes (2026-10-16):** colour and font rework comes first; the Podman migration is paused until it is done. Research in `docs\THEMES.md` (`scripts\palette-research.mjs`); the user chooses the themes and fonts next.
+- **Next, in order:** themes; package + host suite; user confirms the grid fixes; celestial card once its first report has arrived; then the Podman verification script (`INFRASTRUCTURE.md`, open items).
 
 ## Git and GitHub (2026-10-16)
 - **Pull before work, push after.** Start with `git pull --ff-only`; commit in small steps with messages that say what changed and why; push when a piece of work is committed and its tests pass. Never force-push, never rewrite pushed history.
