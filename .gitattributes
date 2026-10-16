@@ -1,0 +1,17 @@
+# Line endings (added 2026-10-16). Text is stored with LF in the repository and checked out
+# with LF, so Windows and Linux sessions see the same bytes. Windows-only scripts keep CRLF.
+# After adding this file, normalise once: git add --renormalize .  then commit.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary files: never converted or diffed as text.
+*.png binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.node binary
+*.pml binary
+*.zip binary
+*.tgz binary

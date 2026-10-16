@@ -12,7 +12,7 @@ All design lives in `docs\`. Read in this order:
 
 Machine-readable specs are in `spec\` (manifest schema, host API, report schema, CLI approval schema).
 
-**`docs\` is the source of truth.** These files are copies of the claude.ai Project "Dashboard" docs, made 2026-10-09. From now on, change the design here and record each decision in `docs\PROJECT.md` (decision log). The Project copy is a mirror and may lag.
+**The git repository is the source of truth** (user decision 2026-10-16: the repository moves to a private GitHub repository). Its `docs\` holds the design; change it here and record each decision in `docs\PROJECT.md` (decision log). The claude.ai Project's docs are an older mirror and may lag: never treat them as current.
 
 ## Hard constraints
 - **No additional payments.** Only what the user's Claude subscription includes. No API keys, no paid services.
@@ -40,7 +40,19 @@ Built 2026-10-09 (see `docs\PROJECT.md`, Status): runtime, broker, file access, 
 - **Feeds:** "Daily celestial events watch" (`trig_01Y1GXmdmH2nc1r4KhLi9Fpn`) is in `options.json` and has its report folder, but its prompt has no report step and it is not connected to the computer yet (user steps; `docs\NEW-FEED-CARD.md`). The RTX card still defaults to the mock feed; the mock folder `reports\trig_MOCKrtx5050test` awaits deletion by the user.
 - **New docs:** `NEW-FEED-CARD.md` (procedure), `LASS.md` (proposal, not approved), `INFRASTRUCTURE.md` (Podman decided; container card workers planned; rule changes required first; see the reminder under Hard constraints).
 - **Podman:** `setup\install-podman.ps1` installs the client portably (`Build\data\vendor\podman\<version>\`; config and data in `Build\data\podman\` via `env.ps1`). Written, not yet run. The user installs WSL first (`wsl.exe --install --no-distribution`, admin, reboot).
-- **Next, in order:** package + host suite; user confirms the grid fixes; celestial task report step and card; then the Podman verification script (`INFRASTRUCTURE.md`, open items).
+- **Celestial watch task:** its prompt has the report step since 2026-10-16 (list format for the card: `sources` titles `section | headline | source | date`). The user still has to turn on "Require this computer" and connect its folder before reports arrive.
+- **Next, in order:** first push to GitHub (after the history scan); package + host suite; user confirms the grid fixes; celestial card once its first report has arrived; then the Podman verification script (`INFRASTRUCTURE.md`, open items).
+
+## Git and GitHub (2026-10-16)
+- **Pull before work, push after.** Start with `git pull --ff-only`; commit in small steps with messages that say what changed and why; push when a piece of work is committed and its tests pass. Never force-push, never rewrite pushed history.
+- **Never commit credentials.** Check `git status` before each commit. `.gitignore` keeps out `Build\data\` (Claude login, approvals, audit), report files (the morning brief holds calendar and email content), spike raw captures (may hold the account e-mail) and key/credential files (`*.creds`, `*.nk`, `*.pem`, `*.key`, `.env`, `infra/**/secrets/`). If a credential was ever committed, stop and tell the user: it must be revoked and replaced; deleting it from history is not enough.
+- **Before the first push:** scan the whole history for secrets (for example `gitleaks detect`, or review `git log --all --stat`) and report the result to the user.
+- **Line endings:** `.gitattributes` stores text with LF; `.ps1`/`.cmd`/`.bat` keep CRLF. After it was added, run `git add --renormalize .` once and commit that separately.
+- **Changes from outside a session.** Claude in claude.ai sometimes writes files on this PC directly. They appear as uncommitted changes: review them and commit them with a message saying where they came from.
+- **Changes from cloud sessions are unverified on Windows.** Cloud sessions can't run the Windows-only tests, the spike or the host suite. Run `npm test` (and the host suite when `src\main`, `src\preload`, `src\card-runtime` or `src\filehelper` changed) on this PC before packaging.
+- **Read pulled changes before building.** A matching host-suite record only proves the tests passed on that build; a hostile change could have edited the tests too. Tell the user about any change to tests, `RULES.md`, the spike, the CLI gate or the validator.
+- **GitHub Actions stays off** unless the user decides otherwise: private repositories get limited free minutes, and "no additional payments" applies.
+- **The development container (planned, INFRASTRUCTURE.md)** gets the source from GitHub with a read-only token for this repository only. It never gets write access; its fixes come out as patches the user approves.
 
 ## Working in this repo
 - Use the project's Node: prepend `tools\node` to PATH (Node 24.21.0; the system Node 20 is too old for Electron 44 and electron-builder). `package`, `test:unit`, `test:race` and `test:host-suite` switch to it by themselves; `typecheck`, `build` and `test:e2e` do not.

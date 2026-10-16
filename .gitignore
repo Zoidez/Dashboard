@@ -24,3 +24,15 @@ playwright-report/
 pack/
 pack-resources/
 Build/Dashboard.lnk
+
+# Credentials and keys: never commit (container plans: NATS credentials, per-card
+# certificates, the development container's GitHub token). Added 2026-10-16.
+*.creds
+*.nk
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+infra/**/secrets/

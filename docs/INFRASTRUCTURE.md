@@ -347,3 +347,10 @@ If the rules above were followed, steps 1–6 are configuration, not redesign. S
 2. How is the Podman machine's automatic mounting of Windows drives switched off, and does it stay off after Podman updates?
 3. Which Kubernetes object kinds and probe fields does the installed Podman version support in `podman kube play`, Jobs in particular? Record the answer under rule D2.
 4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? It may need specific endpoints allowlisted.
+5. Per-container CPU and memory limits in **rootless** Podman inside the Podman machine: they need cgroup v2 with delegation in the WSL2 kernel. If they don't apply, the fallback is a rootful Podman machine (containers rootful inside the VM; the VM stays the wall to Windows), at the cost of weaker isolation between containers.
+6. Behaviour across Windows sleep and hibernate:
+   - Does the Podman machine survive?
+   - Does the WSL2 clock drift? Mutual TLS and short-lived grants fail on a skewed clock, so the clock may need resyncing on wake.
+   - Does `localhost` forwarding from Windows to the bus keep working, or is WSL's mirrored networking mode needed?
+7. The WSL2 VM's memory cap (`.wslconfig`) is shared by all WSL distributions on the PC. Pick a cap that leaves room for Windows.
+8. Pin the Podman version. Podman machine upgrades have broken setups before, so upgrades happen only on purpose, followed by the verification script.
