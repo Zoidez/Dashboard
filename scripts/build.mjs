@@ -2,7 +2,7 @@
 // the preloads run in sandboxed renderers (only `electron` may be required), the card runtime
 // and the Dashboard page are plain browser code.
 import { build } from "esbuild";
-import { cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { writeIcon } from "./icon.mjs";
 
 const common = { bundle: true, sourcemap: "linked", logLevel: "warning", target: "es2023", legalComments: "none" };
@@ -40,3 +40,27 @@ mkdirSync("dist/ts-lib", { recursive: true });
 for (const f of readdirSync("node_modules/typescript/lib")) if (/^lib..*.d.ts$/.test(f)) cpSync("node_modules/typescript/lib/" + f, "dist/ts-lib/" + f + ".txt");
 writeIcon("dist/assets/icon.png");
 cpSync("cards", "dist/cards", { recursive: true });   // reference cards that ship with the Dashboard
+
+// Theme fonts that are not installed with Windows (THEMES.md, Fonts): SIL OFL 1.1, shipped with their
+// licence. Latin and Latin Extended, weights 400/600/700, woff2 only. dist/fonts/fonts.css is linked by
+// the app's pages and served to card pages by the host (card://<id>/__host/fonts/, CSP font-src 'self').
+mkdirSync("dist/fonts", { recursive: true });
+const faces = [];
+for (const fam of ["inter", "ibm-plex-sans", "source-sans-3"]) {
+  const dir = `node_modules/@fontsource/${fam}`;
+  cpSync(`${dir}/LICENSE`, `dist/fonts/${fam}-OFL.txt`);
+  for (const w of [400, 600, 700]) {
+    const css = readFileSync(`${dir}/${w}.css`, "utf8");
+    for (const block of css.split(/(?=\/\*)/).filter((b) => new RegExp(`${fam}-latin-(ext-)?${w}-normal \\*/`).test(b))) {
+      const file = /url\(\.\/files\/([a-z0-9-]+\.woff2)\)/.exec(block)?.[1];
+      if (!file) throw new Error(`no woff2 in ${fam} ${w}`);
+      cpSync(`${dir}/files/${file}`, `dist/fonts/${file}`);
+      faces.push(block.replace(/src:[^;]+;/, `src: url(${file}) format('woff2');`).trim());
+    }
+  }
+}
+writeFileSync("dist/fonts/fonts.css", faces.join("\n") + "\n");
+for (const f of ["index", "options", "canvas"]) {
+  const p = `dist/renderer/${f}.html`;
+  writeFileSync(p, readFileSync(p, "utf8").replace('<link rel="stylesheet" href="dashboard.css">', '<link rel="stylesheet" href="../fonts/fonts.css">\n  <link rel="stylesheet" href="dashboard.css">'));
+}

@@ -95,7 +95,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 - [x] **User: test the packaged Dashboard** — in daily use since 2026-10-10. Electron fuses are still default (deferred decision; see Open questions).
 - [ ] **User: confirm on screen** the fine-grid resize and the clipping of partly hidden cards (packaged 2026-10-10).
 - [x] **Theme rework** (THEMES.md), built 2026-10-16: one theme definition, Options picker, live theme in cards, host-drawn severity methods, contrast unit test, generator rule 10 (now sent), validator theme warnings, reference feed card and its approved update path. Tests: 76 unit, 17 e2e pass.
-- [ ] **Theme fonts:** bundle Inter, IBM Plex Sans and Source Sans 3 (SIL OFL) so the Carbon, Catppuccin, Gruvbox and Nord themes show their own font; until then they fall back to Segoe UI.
+- [x] **Theme fonts:** Inter, IBM Plex Sans and Source Sans 3 (SIL OFL 1.1, `@fontsource` 5.3.x) ship in `dist/fonts` (453 KB) and are served to card pages by the host. Done 2026-10-16.
 - [ ] **User: look at the themes on screen** (File > Options > General > Appearance), and use Cards > Install or update watch-feed cards… to move the three feed cards to the new reference version (one approval each).
 - [ ] **Package and run the host suite again** after the theme rework (`src\main`, `src\preload` and `src\card-runtime` changed).
 - [x] **Commit** everything since 2026-10-09 07:06 (689d41a, 2026-10-13).
@@ -194,6 +194,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-16 | Validator theme warnings are **warnings, not failures**: fixed colours and pixel font sizes are reported to Claude with any retry and to the user on the New card, never on the approval screen | A literal colour can be legitimate (canvas drawing, see-through fill); failing on it would cost a generation. The approval screen stays about permissions only. |
 | 2026-10-16 | "Install or update watch-feed cards…": an installed feed card whose `ui.js` or manifest differs from the shipped reference card is offered the new version, approved again by the user (No changes nothing); the menu now reports what it did | The reference card changed (no own severity colouring); approval is bound to files, so an update needs a new approval. The menu used to fail silently. |
 | 2026-10-16 | Two e2e tests that had broken since 2026-10-10 fixed: fixed report dates went overdue; the grid width was read from a serialized shorthand | Found while running the suite for the theme work. |
+| 2026-10-16 | Theme fonts ship with the app from the `@fontsource` npm packages (exact versions, devDependencies, copied into `dist/fonts` by the build with their OFL licences); only Latin and Latin Extended, 400/600/700, woff2. The app pages' CSP gains `font-src 'self'`; card pages already had it | Free licence that allows bundling; 453 KB instead of several MB for all subsets and weights. |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)
 - Binary: release key fingerprint, signed manifest, SHA-256, Authenticode all verified. (gpg import exits 2 on "can't connect to the agent"; harmless.)

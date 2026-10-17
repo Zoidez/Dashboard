@@ -78,7 +78,6 @@ function General({ s, set }: { s: OptionsState; set: (p: OptionsPatch) => void }
         {(() => {
           const t = s.themes.find((x) => x.id === s.general.theme);
           if (t && !(t.light && t.dark)) return <span className="hint">{t.name} has only a {t.dark ? "dark" : "light"} version; it is used either way.</span>;
-          if (t && !["Segoe UI", "Segoe UI Variable", "Calibri", "Bahnschrift", "Verdana"].includes(t.font)) return <span className="hint">{t.font} is not installed with Windows; until the Dashboard ships it, Segoe UI is used.</span>;
           return null;
         })()}
       </div>

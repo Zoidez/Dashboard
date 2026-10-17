@@ -17,6 +17,8 @@ export async function mount(el, api) {
   api.ui.onThemeChange(async (t) => {
     await save("changed", t);
     await save("bg", getComputedStyle(document.documentElement).getPropertyValue("--bg").trim());
+    // The theme's font ships with the app and is served to the card page (/__host/fonts/).
+    await save("fontFaces", (await document.fonts.load('600 13px "' + t.font.family + '"')).length);
   });
   api.ui.setAccent("critical");
   api.ui.setStatus({ state: "ok" });
@@ -50,6 +52,8 @@ test("G: a theme change reaches the grid and running cards live", async () => {
     expect(changed.mode).toBe("light");
     expect(changed.colors.background).toBe(cat.light!.surface);
     expect(changed.font.family).toBe("Inter");
+    await waitFor(() => (results()?.fontFaces > 0 ? true : null), "Inter loaded inside the card page");
+    expect(await page.evaluate(async () => (await document.fonts.load('600 13px "Inter"')).length)).toBeGreaterThan(0);
     // Catppuccin shows severity as the card's background: the card set "critical", so its page is tinted.
     await waitFor(() => (results()?.bg === cat.light!.criticalTint ? true : null), "the critical tint as the card background");
 

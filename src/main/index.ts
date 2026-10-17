@@ -267,6 +267,7 @@ app.whenReady().then(async () => {
     onChange: () => shell?.push(),
     devTools,
     theme: () => themes.current(),
+    fontsDir: join(distDir, "fonts"),
   }, approvals, broker, audit);
   themes.onChange(() => host?.applyTheme());
 

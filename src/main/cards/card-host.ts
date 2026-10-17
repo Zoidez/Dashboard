@@ -13,7 +13,7 @@
  * Any end of the view (Stop, Revoke, crash, reload, navigation, close, quit) ends the broker session.
  */
 import { app, ipcMain, MessageChannelMain, View, WebContentsView, type BaseWindow, type WebContents, type Session } from "electron";
-import { promises as fsp, readFileSync, watch, type FSWatcher } from "node:fs";
+import { promises as fsp, readdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, posix } from "node:path";
 import type { AuditLog } from "../audit.js";
 import type { Broker, CardSession, SmokeMode } from "../broker/broker.js";
@@ -72,9 +72,11 @@ export interface CardHostOptions {
   workerRuntimePath: string;
   /** The current theme (THEMES.md); card pages are built from it and follow its changes. */
   theme: () => ThemeState;
+  /** dist/fonts: theme fonts shipped with the app, served to card pages as /__host/fonts/<file>. */
+  fontsDir?: string;
 }
 
-const MIME: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".woff2": "font/woff2" };
+const MIME: Record<string, string> = { ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".woff2": "font/woff2" };
 
 export class CardHost {
   readonly cards = new Map<string, RunningCard>();
@@ -82,6 +84,8 @@ export class CardHost {
   readonly stopped = new Map<string, { name: string; status: CardStatus }>();
   private readonly runtimeJs: Buffer;
   private readonly workerRuntimeJs: Buffer;
+  /** Host font files by name (fonts.css and woff2 only), read once at start. */
+  private readonly fonts = new Map<string, Buffer>();
   private watchdog: NodeJS.Timeout | null = null;
   private readonly starting = new Set<string>();
   private readonly sizes = new Map<string, { w: number; h: number }>();
@@ -93,6 +97,10 @@ export class CardHost {
   constructor(private readonly opts: CardHostOptions, private readonly approvals: ApprovalStore, private readonly broker: Broker, private readonly audit: AuditLog) {
     this.runtimeJs = readFileSync(opts.runtimePath);
     this.workerRuntimeJs = readFileSync(opts.workerRuntimePath);
+    if (opts.fontsDir) {
+      try { for (const f of readdirSync(opts.fontsDir)) if (/^[a-z0-9-]+\.(woff2|css)$/.test(f)) this.fonts.set(f, readFileSync(join(opts.fontsDir, f))); }
+      catch { /* no fonts shipped: themes fall back to Segoe UI */ }
+    }
     ipcMain.on("card:hello", (e) => this.onHello(e.sender, e.senderFrame?.url ?? ""));
   }
 
@@ -304,6 +312,8 @@ export class CardHost {
     try { await card.processChecked; } catch { return notFound(); }
 
     if (url.pathname === "/__host/runtime.js") return new Response(new Uint8Array(this.runtimeJs), { headers: headers(MIME[".js"]) });
+    const font = this.font(url.pathname);
+    if (font) return new Response(new Uint8Array(font.data), { headers: headers(font.type) });
     if (url.pathname === "/__host/worker-runtime.js") {
       if (!this.hasWorker(card)) return notFound();
       return new Response(new Uint8Array(this.workerRuntimeJs), { headers: headers(MIME[".js"]) });
@@ -460,6 +470,8 @@ export class CardHost {
       if (url.pathname === "/" || url.pathname === "/index.html") return new Response(indexHtml(this.opts.theme(), "neutral", worker), { headers: hdr("text/html; charset=utf-8") });
       try { await check(); } catch (e) { errors.push((e as Error).message); return nf(); }
       if (url.pathname === "/__host/runtime.js") return new Response(new Uint8Array(this.runtimeJs), { headers: hdr(MIME[".js"]) });
+      const font = this.font(url.pathname);
+      if (font) return new Response(new Uint8Array(font.data), { headers: hdr(font.type) });
       if (url.pathname === "/__host/worker-runtime.js") return worker ? new Response(new Uint8Array(this.workerRuntimeJs), { headers: hdr(MIME[".js"]) }) : nf();
       const rel = decodeURIComponent(url.pathname.slice(1));
       if (!isCardFilePath(rel) || rel === "manifest.json" || rel === "DEVLOG.md" || !card.files[rel]) return nf();
@@ -586,6 +598,13 @@ export class CardHost {
     if (this.opts.theme().methods.includes("background")) this.pushTheme(card);
   }
 
+  /** A host font file for /__host/fonts/<name>, or null. */
+  private font(pathname: string): { data: Buffer; type: string } | null {
+    const m = /^\/__host\/fonts\/([a-z0-9-]+\.(woff2|css))$/.exec(pathname);
+    const data = m ? this.fonts.get(m[1]) : undefined;
+    return data ? { data, type: m![2] === "css" ? MIME[".css"] : MIME[".woff2"] } : null;
+  }
+
   /** Sends the current theme to every running card (host to card only; THEMES.md rule 5). */
   applyTheme(): void {
     for (const card of this.cards.values()) this.pushTheme(card);
@@ -648,6 +667,7 @@ function indexHtml(theme: ThemeState, accent: string, worker: boolean): string {
   const vars = Object.entries(cardVars(theme, accent)).map(([k, v]) => `${k}:${v}`).join(";");
   return `<!doctype html>
 <html data-theme="${theme.mode}" data-theme-id="${theme.id}" data-theme-font="${theme.font.family}"${worker ? ' data-worker="1"' : ""}><head><meta charset="utf-8">
+<link rel="stylesheet" href="/__host/fonts/fonts.css">
 <style>
 :root{color-scheme:${theme.mode};${vars}}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:var(--font-size)/var(--line-height) var(--font-family)}
