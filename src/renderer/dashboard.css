@@ -1,21 +1,11 @@
-:root {
-  color-scheme: light dark;
-  --bg: #eef0f4; --surface: #ffffff; --fg: #1d2330; --muted: #5b6475; --border: #d3d8e0; --accent: #0b57c2;
-  --ok: #2e7d4f; --warn: #8a5300; --err: #b3261e;
-  --acc-low: #5f7387; --acc-medium: #b07800; --acc-high: #c4421a; --acc-critical: #b3261e;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #12151b; --surface: #1b1f27; --fg: #e6e9ef; --muted: #a3abba; --border: #343a46; --accent: #8ab4ff;
-    --ok: #6cc795; --warn: #e3a948; --err: #f08b84;
-    --acc-low: #8fa3b8; --acc-medium: #e0ad3e; --acc-high: #f07a52; --acc-critical: #f0665c;
-  }
-}
+/* Colours and fonts come from the theme (THEMES.md, src/shared/theme.ts): the preload sets them as CSS
+   variables on :root before the first paint. Font sizes are relative to the theme's base size (rem). */
+:root { color-scheme: light dark; font-size: var(--font-size, 13px); }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 1rem/var(--line-height, 1.4) var(--font-family, "Segoe UI", system-ui, sans-serif); }
 #root { height: 100%; display: flex; flex-direction: column; }
 #top { flex: 0 0 40px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
-#top .title { font-weight: 600; font-size: 14px; }
+#top .title { font-weight: 600; font-size: 1.077rem; }
 #summary { color: var(--muted); flex: 1; }
 button { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -28,13 +18,32 @@ button.danger { color: var(--err); }
 .grid { position: relative; display: grid; grid-template-columns: repeat(96, minmax(0, 1fr)); grid-auto-rows: 10px; grid-auto-flow: row dense; gap: 0; }
 /* Resize outline: follows the pointer pixel for pixel; the card snaps to it on release. */
 .resize-ghost { position: absolute; z-index: 10; pointer-events: none; box-sizing: border-box; border: 2px dashed var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, transparent); display: flex; align-items: flex-end; justify-content: flex-end; }
-.resize-ghost span { margin: 6px 8px; padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); }
+.resize-ghost span { margin: 6px 8px; padding: 1px 6px; border-radius: 4px; font-size: .923rem; color: var(--fg); background: var(--surface); border: 1px solid var(--border); }
 .frame { position: relative; margin: 6px; display: flex; flex-direction: column; padding-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; min-width: 0; }
 .frame.dragging { opacity: .5; }
-.frame[data-accent="low"] { border-color: var(--acc-low); }
-.frame[data-accent="medium"] { border-color: var(--acc-medium); }
-.frame[data-accent="high"] { border-color: var(--acc-high); border-width: 2px; }
-.frame[data-accent="critical"] { border-color: var(--acc-critical); border-width: 3px; }
+/* Severity (api.ui.setAccent), drawn the way the theme chooses: one or two of five methods (THEMES.md). */
+[data-sev~="border"] .frame[data-accent="low"] { border-color: var(--acc-low); }
+[data-sev~="border"] .frame[data-accent="medium"] { border-color: var(--acc-medium); }
+[data-sev~="border"] .frame[data-accent="high"] { border-color: var(--acc-high); border-width: 2px; }
+[data-sev~="border"] .frame[data-accent="critical"] { border-color: var(--acc-critical); border-width: 3px; }
+[data-sev~="header"] .frame[data-accent="low"] .bar { background: var(--acc-low); color: var(--on-low); }
+[data-sev~="header"] .frame[data-accent="medium"] .bar { background: var(--acc-medium); color: var(--on-medium); }
+[data-sev~="header"] .frame[data-accent="high"] .bar { background: var(--acc-high); color: var(--on-high); }
+[data-sev~="header"] .frame[data-accent="critical"] .bar { background: var(--acc-critical); color: var(--on-critical); }
+[data-sev~="header"] .frame:is([data-accent="low"], [data-accent="medium"], [data-accent="high"], [data-accent="critical"]) .bar .state { color: inherit; }
+[data-sev~="background"] .frame[data-accent="low"] { background: var(--low-tint); }
+[data-sev~="background"] .frame[data-accent="medium"] { background: var(--medium-tint); }
+[data-sev~="background"] .frame[data-accent="high"] { background: var(--high-tint); }
+[data-sev~="background"] .frame[data-accent="critical"] { background: var(--critical-tint); }
+[data-sev~="headerText"] .frame[data-accent="low"] .name { color: var(--acc-low); }
+[data-sev~="headerText"] .frame[data-accent="medium"] .name { color: var(--acc-medium); }
+[data-sev~="headerText"] .frame[data-accent="high"] .name { color: var(--acc-high); }
+[data-sev~="headerText"] .frame[data-accent="critical"] .name { color: var(--acc-critical); }
+.frame .bookmark { display: none; flex: 0 0 auto; width: 10px; height: 14px; }
+[data-sev~="bookmark"] .frame[data-accent="low"] .bookmark { display: block; fill: var(--acc-low); }
+[data-sev~="bookmark"] .frame[data-accent="medium"] .bookmark { display: block; fill: var(--acc-medium); }
+[data-sev~="bookmark"] .frame[data-accent="high"] .bookmark { display: block; fill: var(--acc-high); }
+[data-sev~="bookmark"] .frame[data-accent="critical"] .bookmark { display: block; fill: var(--acc-critical); }
 .frame .bar { flex: 0 0 30px; padding: 0 6px 0 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); cursor: grab; user-select: none; }
 .frame .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .frame .state { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: right; }
@@ -42,7 +51,7 @@ button.danger { color: var(--err); }
 .frame .state[data-state="stale"] { color: var(--warn); }
 .frame .state[data-state="error"], .frame .state[data-state="refused"] { color: var(--err); }
 .frame .actions { display: flex; gap: 4px; }
-.frame .actions button { padding: 0 6px; font-size: 12px; }
+.frame .actions button { padding: 0 6px; font-size: .923rem; }
 .frame .body { flex: 1; min-height: 0; }
 .frame .reason { padding: 10px; margin: 0; color: var(--muted); }
 /* The handle sits in the strip below the body: the card view covers the body itself. */
@@ -56,23 +65,24 @@ button.danger { color: var(--err); }
 .newcard select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
 .newcard textarea { flex: 1; min-height: 8.5em; resize: none; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
 .newcard textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.newcard .progress { color: var(--muted); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.newcard .errors { margin: 0; max-height: 40%; overflow: auto; white-space: pre-wrap; font: 12px/1.4 Consolas, "Cascadia Mono", monospace; color: var(--err); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+.newcard .progress { color: var(--muted); font-size: .923rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.newcard .errors { margin: 0; max-height: 40%; overflow: auto; white-space: pre-wrap; font: .923rem/1.4 Consolas, "Cascadia Mono", monospace; color: var(--err); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
 .newcard .gate-state { margin: 0; }
-.newcard .hint { color: var(--muted); font-size: 12px; margin: 0; }
-button.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; }
+.newcard .hint { color: var(--muted); font-size: .923rem; margin: 0; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
 button:disabled { opacity: .55; cursor: default; }
 
 /* Grant: undoes a revoke (green) */
-button.grant { color: var(--surface); background: var(--ok); border-color: var(--ok); font-weight: 600; }
+button.grant { color: var(--on-ok); background: var(--ok); border-color: var(--ok); font-weight: 600; }
 button.grant:hover { filter: brightness(1.08); border-color: var(--ok); }
 
 /* On/off switch (renderer/toggle.tsx) */
 .toggle { position: relative; display: inline-flex; flex: 0 0 auto; cursor: pointer; }
 .toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: inherit; }
 .toggle .track { width: 30px; height: 16px; border-radius: 8px; background: var(--border); transition: background .12s; display: inline-block; position: relative; }
-.toggle .thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 15%, transparent); transition: transform .12s; }
+.toggle .thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 15%, transparent); transition: transform .12s; }
 .toggle input:checked + .track { background: var(--ok); }
+.toggle input:checked + .track .thumb { background: var(--on-ok); }
 .toggle input:checked + .track .thumb { transform: translateX(14px); }
 .toggle input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 1px; }
 .toggle input:disabled + .track { opacity: .45; }
@@ -88,6 +98,6 @@ button.grant:hover { filter: brightness(1.08); border-color: var(--ok); }
 .perm-icon { display: inline-flex; width: 18px; justify-content: center; color: var(--fg); }
 .perm-row.off .perm-icon, .perm-row.none .perm-icon { color: var(--muted); }
 .perm-label { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
-.perm-note { font-size: 11px; color: var(--muted); }
+.perm-note { font-size: .846rem; color: var(--muted); }
 .perm-row.off .perm-note { color: var(--warn); }
 .perm-row.none { opacity: .7; }

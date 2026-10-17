@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { TASK_ID_RE } from "./reports/report.js";
+import { DEFAULT_THEME_ID, THEMES, type ModePref } from "../shared/theme.js";
 
 export interface FeedConfig {
   taskId: string;
@@ -17,9 +18,12 @@ export interface FeedConfig {
   keep: number;
 }
 
-export interface General { startWithWindows: boolean; closeToTray: boolean }
+/** theme: a built-in theme id (THEMES.md); themeMode: light, dark or follow Windows. */
+export interface General { startWithWindows: boolean; closeToTray: boolean; theme: string; themeMode: ModePref }
 export interface Options { schema: 1; general: General; feeds: FeedConfig[] }
-const DEFAULT_GENERAL: General = { startWithWindows: false, closeToTray: true };
+const DEFAULT_GENERAL: General = { startWithWindows: false, closeToTray: true, theme: DEFAULT_THEME_ID, themeMode: "system" };
+const isTheme = (v: unknown): v is string => typeof v === "string" && THEMES.some((t) => t.id === v);
+const isMode = (v: unknown): v is ModePref => v === "system" || v === "light" || v === "dark";
 
 /** The three connected tasks (EXCHANGE.md, "Connected tasks"). */
 export const DEFAULT_FEEDS: FeedConfig[] = [
@@ -49,7 +53,10 @@ export class OptionsStore {
         const g = (raw.general ?? {}) as Partial<General>;
         v = {
           schema: 1,
-          general: { startWithWindows: g.startWithWindows === true, closeToTray: g.closeToTray !== false },
+          general: {
+            startWithWindows: g.startWithWindows === true, closeToTray: g.closeToTray !== false,
+            theme: isTheme(g.theme) ? g.theme : DEFAULT_THEME_ID, themeMode: isMode(g.themeMode) ? g.themeMode : "system",
+          },
           feeds: raw.feeds.map(cleanFeed).filter((x): x is FeedConfig => !!x),
         };
       }
@@ -64,6 +71,8 @@ export class OptionsStore {
 
   setGeneral(patch: Partial<Record<keyof General, unknown>>): void {
     for (const k of ["startWithWindows", "closeToTray"] as const) if (typeof patch[k] === "boolean") this.value.general[k] = patch[k] as boolean;
+    if (isTheme(patch.theme)) this.value.general.theme = patch.theme;
+    if (isMode(patch.themeMode)) this.value.general.themeMode = patch.themeMode;
     this.save();
   }
 

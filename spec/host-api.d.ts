@@ -180,10 +180,28 @@ export interface UiApi {
   notify(message: string, level?: "info" | "warning" | "error"): void;
   /** Card status shown by the host frame (generator rule 7). */
   setStatus(status: { state: "loading" | "ok" | "stale" | "error"; message?: string; updatedAt?: string }): void;
-  /** Card background accent from the host theme (e.g. watch feed severity). */
+  /** The card's severity (e.g. a watch feed's latest report). The host frame shows it in the way the user's theme
+   *  chooses (outline, title bar, background, ...); the card never draws severity itself (generator rule 10). */
   setAccent(accent: "neutral" | Severity): void;
-  /** Theme tokens (CSS variables are also set on the card view's :root). */
-  theme(): { mode: "light" | "dark" };
+  /** The current theme. Prefer the CSS variables on the card page's :root, which follow theme changes by themselves:
+   *  --bg (card background), --fg (text), --muted, --border, --accent / --link, --ok, --warn, --err,
+   *  --sev-low / --sev-medium / --sev-high / --sev-critical, --font-family, --font-size, --line-height.
+   *  Use these variables and relative font sizes (em/rem) instead of fixed colours and pixel sizes. */
+  theme(): ThemeInfo;
+  /** Called after the user changes the theme (or Windows switches light/dark). Returns an unsubscribe function. */
+  onThemeChange(cb: (theme: ThemeInfo) => void): () => void;
+}
+
+export interface ThemeInfo {
+  mode: "light" | "dark";
+  /** Built-in theme id, e.g. "dashboard", "nord". */
+  id: string;
+  /** Colours as #rrggbb. background = the card's own background. */
+  colors: {
+    background: string; page: string; text: string; muted: string; border: string; accent: string;
+    ok: string; warning: string; error: string; low: string; medium: string; high: string; critical: string;
+  };
+  font: { family: string; size: number; lineHeight: number };
 }
 
 // ---------- worker <-> ui messaging (no permission needed) ----------

@@ -2,10 +2,10 @@
 .tabs button { border-radius: 4px 4px 0 0; border-bottom: none; }
 .tabs button[aria-selected="true"] { border-color: var(--accent); font-weight: 600; }
 .panel { padding: 16px; overflow: auto; flex: 1; }
-.panel h2 { font-size: 15px; margin: 0 0 12px; }
+.panel h2 { font-size: 1.154rem; margin: 0 0 12px; }
 .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
 .row label { min-width: 180px; }
-.hint { color: var(--muted); font-size: 12px; }
+.hint { color: var(--muted); font-size: .923rem; }
 table.list { border-collapse: collapse; width: 100%; }
 table.list th, table.list td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
 table.list th { font-weight: 600; color: var(--muted); }
@@ -13,11 +13,11 @@ table.list th { font-weight: 600; color: var(--muted); }
 .perm { margin: 6px 0; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
 .perm > :not(.toggle) { grid-column: 2; }
 .perm > .toggle { grid-row: 1; grid-column: 1; }
-.perm .reason { color: var(--muted); font-size: 12px; }
+.perm .reason { color: var(--muted); font-size: .923rem; }
 .perm.off { color: var(--muted); }
-.mark { font-size: 12px; padding: 1px 6px; border-radius: 3px; margin-left: 6px; border: 1px solid currentColor; }
+.mark { font-size: .923rem; padding: 1px 6px; border-radius: 3px; margin-left: 6px; border: 1px solid currentColor; }
 .mark.red { color: var(--err); }
 .mark.yellow { color: var(--warn); }
 .mark.off { color: var(--muted); }
-.mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+.mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: .923rem; }
 select, input[type=number] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }

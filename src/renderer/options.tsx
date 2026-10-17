@@ -60,6 +60,28 @@ function General({ s, set }: { s: OptionsState; set: (p: OptionsPatch) => void }
         <input id="ctt" type="checkbox" checked={s.general.closeToTray} onChange={(e) => set({ general: { closeToTray: e.target.checked } })} />
         <span className="hint">Closing the window keeps the cards running; quit from the tray icon.</span>
       </div>
+      <h2>Appearance</h2>
+      <div className="row">
+        <label htmlFor="theme">Theme</label>
+        <select id="theme" value={s.general.theme} onChange={(e) => set({ general: { theme: e.target.value } })}>
+          {s.themes.map((t) => <option key={t.id} value={t.id}>{t.name}{t.light && t.dark ? "" : t.dark ? " (dark only)" : " (light only)"}</option>)}
+        </select>
+        <span className="hint">Colours and font for the Dashboard and every card. Cards change at once.</span>
+      </div>
+      <div className="row">
+        <label htmlFor="mode">Light or dark</label>
+        <select id="mode" value={s.general.themeMode} onChange={(e) => set({ general: { themeMode: e.target.value as "system" | "light" | "dark" } })}>
+          <option value="system">Follow Windows</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+        {(() => {
+          const t = s.themes.find((x) => x.id === s.general.theme);
+          if (t && !(t.light && t.dark)) return <span className="hint">{t.name} has only a {t.dark ? "dark" : "light"} version; it is used either way.</span>;
+          if (t && !["Segoe UI", "Segoe UI Variable", "Calibri", "Bahnschrift", "Verdana"].includes(t.font)) return <span className="hint">{t.font} is not installed with Windows; until the Dashboard ships it, Segoe UI is used.</span>;
+          return null;
+        })()}
+      </div>
     </>
   );
 }

@@ -1,5 +1,8 @@
 /** Options window preload: reads the host's state and asks for validated changes. Nothing else. */
 import { contextBridge, ipcRenderer } from "electron";
+import { installTheme } from "./theme.js";
+
+installTheme();
 
 contextBridge.exposeInMainWorld("optionsHost", {
   get: (): Promise<unknown> => ipcRenderer.invoke("options:get"),

@@ -108,6 +108,36 @@ async function main(): Promise<void> {
   });
   const fire = (m: string, ...a: unknown[]): void => { call(m, ...a).catch(() => undefined); };
 
+  // Theme (THEMES.md): the page starts with the host's variables; "host:theme" replaces them in place.
+  const root = document.documentElement;
+  const themeListeners = new Set<(t: ReturnType<HostApi["ui"]["theme"]>) => void>();
+  const readTheme = (): ReturnType<HostApi["ui"]["theme"]> => {
+    const cs = getComputedStyle(root);
+    const g = (k: string) => cs.getPropertyValue(k).trim();
+    return {
+      mode: root.dataset.theme === "dark" ? "dark" : "light",
+      id: root.dataset.themeId ?? "",
+      colors: {
+        background: g("--surface"), page: g("--page"), text: g("--fg"), muted: g("--muted"), border: g("--border"), accent: g("--accent"),
+        ok: g("--ok"), warning: g("--warn"), error: g("--err"), low: g("--sev-low"), medium: g("--sev-medium"), high: g("--sev-high"), critical: g("--sev-critical"),
+      },
+      font: { family: root.dataset.themeFont ?? "", size: parseFloat(g("--font-size")) || 13, lineHeight: parseFloat(g("--line-height")) || 1.4 },
+    };
+  };
+  const SAFE_VALUE = /^[#\w\s",.()-]{1,200}$/;
+  listeners.set("host:theme", new Set([(v: unknown) => {
+    const m = v as { vars?: Record<string, unknown>; info?: { id?: unknown; mode?: unknown; font?: { family?: unknown } } };
+    if (!m?.vars || typeof m.vars !== "object") return;
+    for (const [k, val] of Object.entries(m.vars)) if (/^--[a-z0-9-]{1,40}$/.test(k) && typeof val === "string" && SAFE_VALUE.test(val)) root.style.setProperty(k, val);
+    const mode = m.info?.mode === "dark" ? "dark" : "light";
+    root.dataset.theme = mode;
+    root.style.colorScheme = mode;
+    if (typeof m.info?.id === "string") root.dataset.themeId = m.info.id;
+    if (typeof m.info?.font?.family === "string") root.dataset.themeFont = m.info.font.family;
+    const t = readTheme();
+    for (const cb of themeListeners) { try { cb(t); } catch (e) { console.error(e); } }
+  }]));
+
   const config = (await call("card.config")) as Record<string, string | number | boolean>;
   const cardId = location.host;
   const fromWorker = new Set<(m: unknown) => void>();
@@ -121,7 +151,8 @@ async function main(): Promise<void> {
     notify: (message, level) => fire("ui.notify", message, level ?? "info"),
     setStatus: (status) => fire("ui.setStatus", { ...status }),
     setAccent: (accent) => fire("ui.setAccent", accent),
-    theme: () => ({ mode: document.documentElement.dataset.theme === "dark" ? "dark" : "light" }),
+    theme: () => readTheme(),
+    onThemeChange: (cb) => { themeListeners.add(cb); return () => { themeListeners.delete(cb); }; },
   };
   const api = buildApi({ call, listeners }, {
     cardId, config, ui,

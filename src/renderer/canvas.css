@@ -1,7 +1,9 @@
+/* The approval screen is security UI: its text never shrinks below today's pixel sizes in any theme (THEMES.md). */
+.canvas { font-size: max(1rem, 13px); }
 .canvas { padding: 16px 20px 72px; overflow: auto; height: 100%; border: 3px solid transparent; }
 .canvas.red { border-color: var(--err); }
-.canvas h1 { font-size: 16px; margin: 0 0 4px; }
-.canvas h2 { font-size: 14px; margin: 18px 0 8px; }
+.canvas h1 { font-size: max(1.231rem, 16px); margin: 0 0 4px; }
+.canvas h2 { font-size: max(1.077rem, 14px); margin: 18px 0 8px; }
 .banner { border-radius: 6px; padding: 8px 12px; margin: 12px 0; border: 2px solid; }
 .banner.red { border-color: var(--err); color: var(--err); }
 .banner.yellow { border-color: var(--warn); color: var(--warn); }
@@ -12,10 +14,10 @@
 .perms li.yellow { border: 2px solid var(--warn); }
 .perms label { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .perms .text { font-weight: 600; }
-.perms .reason { color: var(--muted); font-size: 12px; margin-left: 24px; }
-.perms .why { font-size: 12px; margin-left: 24px; }
+.perms .reason { color: var(--muted); font-size: max(.923rem, 12px); margin-left: 24px; }
+.perms .why { font-size: max(.923rem, 12px); margin-left: 24px; }
 .perms .why.red { color: var(--err); } .perms .why.yellow { color: var(--warn); }
-.tag { font-size: 11px; border: 1px solid var(--accent); color: var(--accent); border-radius: 3px; padding: 0 4px; }
+.tag { font-size: max(.846rem, 11px); border: 1px solid var(--accent); color: var(--accent); border-radius: 3px; padding: 0 4px; }
 .removed { color: var(--muted); }
 footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 20px; display: flex; justify-content: flex-end; gap: 8px; background: var(--surface); border-top: 1px solid var(--border); }
-button.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }

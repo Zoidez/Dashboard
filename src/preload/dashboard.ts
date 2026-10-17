@@ -1,5 +1,8 @@
 /** Dashboard preload: state from the host, and the few things the grid page may ask for. The host validates every message. */
 import { contextBridge, ipcRenderer } from "electron";
+import { installTheme } from "./theme.js";
+
+installTheme();
 
 contextBridge.exposeInMainWorld("dashboardHost", {
   onState(cb: (state: unknown) => void): void {

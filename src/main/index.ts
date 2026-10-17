@@ -30,6 +30,7 @@ import { streamsOf } from "../filehelper/win32.js";
 import type { GeneratorView } from "../shared/ui-state.js";
 import { LayoutStore } from "./layout.js";
 import { Shell } from "./ui/shell.js";
+import { ThemeService } from "./ui/theme-service.js";
 import { verifyCli } from "./generator/cli-gate.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
@@ -207,6 +208,8 @@ function buildMenu(): void {
 
 app.whenReady().then(async () => {
   buildMenu();
+  // One theme for the app's pages and the card pages (THEMES.md). App pages: the default session's windows.
+  const themes = new ThemeService(options, (wc) => wc.session === session.defaultSession && wc.getType() === "window");
   win = createWindow();
   const w = win;
   const broker = new Broker(approvals, audit, {
@@ -252,7 +255,9 @@ app.whenReady().then(async () => {
     dashboardPid: () => w.webContents.getOSProcessId(),
     onChange: () => shell?.push(),
     devTools,
+    theme: () => themes.current(),
   }, approvals, broker, audit);
+  themes.onChange(() => host?.applyTheme());
 
   canvas = new ApprovalCanvas({ parent: () => win, distDir, approvalsDir: paths.approvals, taskName: (t) => options.feed(t)?.name ?? t, devTools });
   const cv = canvas;
@@ -284,6 +289,7 @@ app.whenReady().then(async () => {
   shell = new Shell({
     win: w, host: () => host, approvals, audit, options, feeds, layout: layoutStore, gate: gateState,
     distDir, reportsDir: paths.reports, devTools,
+    themeChanged: () => themes.changed(),
     setLoginItem: (open) => app.setLoginItemSettings({ openAtLogin: open, path: process.execPath }),
     generator: {
       view: generatorView,
@@ -299,7 +305,7 @@ app.whenReady().then(async () => {
   if (options.general.startWithWindows) shell.applyLoginItem();
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate };
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate, themes };
 
   await w.loadFile(join(distDir, "renderer", "index.html"));
   await feeds.start();

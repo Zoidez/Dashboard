@@ -75,7 +75,7 @@ const CATEGORY_UI: Array<{ id: PermissionCategory; label: string; what: string; 
  * (a card view is a native layer above this page).
  */
 function PermissionMenu({ frame, at, menuRef, onSwitch }: {
-  frame: CardFrame; at: { top: number; right: number }; menuRef: RefObject<HTMLDivElement>;
+  frame: CardFrame; at: { top: number; right: number }; menuRef: RefObject<HTMLDivElement | null>;
   onSwitch: (c: PermissionCategory, on: boolean) => void;
 }) {
   const p = frame.permissions;
@@ -280,6 +280,8 @@ function App() {
               onDrop={() => onDrop(f.cardId)}
             >
               <div className="bar" draggable onDragStart={() => { setDragId(f.cardId); setBusy(true); }} onDragEnd={() => { setDragId(null); setBusy(false); }} title="Drag to move">
+                {/* Shown only when the theme uses the bookmark severity method (dashboard.css). */}
+                <svg className="bookmark" viewBox="0 0 10 14" aria-hidden="true"><path d="M0 0h10v14L5 10 0 14z" /></svg>
                 <span className="name">{f.name}</span>
                 <span className="state" data-state={f.state}>{STATE_WORDS[f.state] ?? f.state}{f.message ? `: ${f.message}` : ""}</span>
                 <span className="actions">

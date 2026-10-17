@@ -13,6 +13,7 @@ import { display } from "../cards/permission-lines.js";
 import { LayoutStore, clampSize } from "../layout.js";
 import type { OptionsStore } from "../options.js";
 import type { FeedService } from "../reports/feeds.js";
+import { THEMES } from "../../shared/theme.js";
 import type { CardAction, CardFrame, CategoryState, DashboardState, GeneratorView, NewCardRequest, OptionsPatch, OptionsState } from "../../shared/ui-state.js";
 
 export interface ShellDeps {
@@ -27,6 +28,8 @@ export interface ShellDeps {
   distDir: string;
   reportsDir: string;
   devTools: boolean;
+  /** The theme setting changed: re-send the theme to every page and card. */
+  themeChanged: () => void;
   /** Writes the Windows sign-in entry; only called for the packaged app. */
   setLoginItem: (open: boolean) => void;
   /** The New card: state, and what its buttons do. */
@@ -194,6 +197,7 @@ export class Shell {
     const taskName = (t: string) => this.d.options.feed(t)?.name ?? t;
     return {
       general: { ...this.d.options.general, packaged: app.isPackaged },
+      themes: THEMES.map((t) => ({ id: t.id, name: t.name, light: !!t.light, dark: !!t.dark, font: t.font })),
       feeds: this.d.options.feeds.map((f) => {
         const st = this.d.feeds.state(f.taskId);
         return {
@@ -225,10 +229,11 @@ export class Shell {
   private applyPatch(patch: unknown): void {
     const p = patch as OptionsPatch;
     if (p && typeof p === "object" && "general" in p && p.general && typeof p.general === "object") {
-      const before = this.d.options.general.startWithWindows;
+      const before = { ...this.d.options.general };
       this.d.options.setGeneral(p.general);
-      const after = this.d.options.general.startWithWindows;
-      if (after !== before) this.applyLoginItem();
+      const after = this.d.options.general;
+      if (after.startWithWindows !== before.startWithWindows) this.applyLoginItem();
+      if (after.theme !== before.theme || after.themeMode !== before.themeMode) this.d.themeChanged();
     } else if (p && typeof p === "object" && "feed" in p && p.feed && typeof p.feed.taskId === "string") {
       const { taskId, ...rest } = p.feed;
       if (this.d.options.setFeed(taskId, rest)) void this.d.feeds.rescan(taskId);

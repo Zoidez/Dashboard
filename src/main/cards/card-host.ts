@@ -12,7 +12,7 @@
  *      keeps the other end bound to a broker session. That binding is the card's identity.
  * Any end of the view (Stop, Revoke, crash, reload, navigation, close, quit) ends the broker session.
  */
-import { app, ipcMain, MessageChannelMain, nativeTheme, View, WebContentsView, type BaseWindow, type WebContents, type Session } from "electron";
+import { app, ipcMain, MessageChannelMain, View, WebContentsView, type BaseWindow, type WebContents, type Session } from "electron";
 import { promises as fsp, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, posix } from "node:path";
 import type { AuditLog } from "../audit.js";
@@ -20,6 +20,7 @@ import type { Broker, CardSession, SmokeMode } from "../broker/broker.js";
 import { checkCardProcess, type ProcessRights } from "../security/process-check.js";
 import { ApprovalStore, CARD_ID_RE, hashCardFolder, isCardFilePath, sha256, type ApprovalRecord } from "./approvals.js";
 import { CARD_CSP, createCardSession } from "./card-session.js";
+import { cardVars, themeInfo, type ThemeState } from "../../shared/theme.js";
 
 export interface CardStatus { state: "starting" | "loading" | "ok" | "stale" | "error" | "stopped" | "refused"; message?: string; updatedAt?: string }
 
@@ -69,6 +70,8 @@ export interface CardHostOptions {
   devTools: boolean;
   limits?: { memoryBytes?: number; cpuPercent?: number; cpuSeconds?: number; tickTimeoutMs?: number };
   workerRuntimePath: string;
+  /** The current theme (THEMES.md); card pages are built from it and follow its changes. */
+  theme: () => ThemeState;
 }
 
 const MIME: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".woff2": "font/woff2" };
@@ -293,7 +296,7 @@ export class CardHost {
     const headers = (type: string) => ({ "content-type": type, "content-security-policy": CARD_CSP, "x-content-type-options": "nosniff", "cache-control": "no-store", "cross-origin-opener-policy": "same-origin", "cross-origin-resource-policy": "same-origin" });
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      return new Response(indexHtml(nativeTheme.shouldUseDarkColors, this.hasWorker(card)), { headers: headers("text/html; charset=utf-8") });
+      return new Response(indexHtml(this.opts.theme(), card.accent, this.hasWorker(card)), { headers: headers("text/html; charset=utf-8") });
     }
 
     // No card code before the OS process check has passed.
@@ -454,7 +457,7 @@ export class CardHost {
       const nf = () => new Response("not found", { status: 404, headers: { "content-security-policy": CARD_CSP } });
       const hdr = (type: string) => ({ "content-type": type, "content-security-policy": CARD_CSP, "x-content-type-options": "nosniff", "cache-control": "no-store" });
       if (url.host !== id) return nf();
-      if (url.pathname === "/" || url.pathname === "/index.html") return new Response(indexHtml(nativeTheme.shouldUseDarkColors, worker), { headers: hdr("text/html; charset=utf-8") });
+      if (url.pathname === "/" || url.pathname === "/index.html") return new Response(indexHtml(this.opts.theme(), "neutral", worker), { headers: hdr("text/html; charset=utf-8") });
       try { await check(); } catch (e) { errors.push((e as Error).message); return nf(); }
       if (url.pathname === "/__host/runtime.js") return new Response(new Uint8Array(this.runtimeJs), { headers: hdr(MIME[".js"]) });
       if (url.pathname === "/__host/worker-runtime.js") return worker ? new Response(new Uint8Array(this.workerRuntimeJs), { headers: hdr(MIME[".js"]) }) : nf();
@@ -576,7 +579,22 @@ export class CardHost {
 
   setAccent(cardId: string, accent: string): void {
     const card = this.cards.get(cardId);
-    if (card) { card.accent = accent; this.opts.onChange(); }
+    if (!card || card.accent === accent) return;
+    card.accent = accent;
+    this.opts.onChange();
+    // With the "background" severity method the card's own background shows its level.
+    if (this.opts.theme().methods.includes("background")) this.pushTheme(card);
+  }
+
+  /** Sends the current theme to every running card (host to card only; THEMES.md rule 5). */
+  applyTheme(): void {
+    for (const card of this.cards.values()) this.pushTheme(card);
+  }
+
+  private pushTheme(card: RunningCard): void {
+    if (!card.broker || card.stopping) return;
+    const t = this.opts.theme();
+    this.broker.emit(card.broker, "host:theme", { vars: cardVars(t, card.accent), info: themeInfo(t) });
   }
 
   config(cardId: string): Record<string, string | number | boolean> {
@@ -622,17 +640,17 @@ export class CardHost {
   }
 }
 
-function indexHtml(dark: boolean, worker: boolean): string {
+/**
+ * The card page. Its colours and font come from the theme (validated values only, host invariant 14);
+ * the runtime updates them in place when the theme or the card's level changes.
+ */
+function indexHtml(theme: ThemeState, accent: string, worker: boolean): string {
+  const vars = Object.entries(cardVars(theme, accent)).map(([k, v]) => `${k}:${v}`).join(";");
   return `<!doctype html>
-<html data-theme="${dark ? "dark" : "light"}"${worker ? ' data-worker="1"' : ""}><head><meta charset="utf-8">
+<html data-theme="${theme.mode}" data-theme-id="${theme.id}" data-theme-font="${theme.font.family}"${worker ? ' data-worker="1"' : ""}><head><meta charset="utf-8">
 <style>
-:root{color-scheme:light;--bg:#ffffff;--fg:#1d2330;--muted:#5b6475;--border:#d8dce3;--link:#0b57c2;
---sev-none-bg:#ffffff;--sev-none-fg:#1d2330;--sev-low-bg:#e3e9f0;--sev-low-fg:#1f2d3d;--sev-medium-bg:#fff1cc;--sev-medium-fg:#4a3500;
---sev-high-bg:#ffe0d1;--sev-high-fg:#5c1d00;--sev-critical-bg:#fbd5d2;--sev-critical-fg:#5f0f0a}
-:root[data-theme=dark]{color-scheme:dark;--bg:#1b1f27;--fg:#e6e9ef;--muted:#a3abba;--border:#363c48;--link:#8ab4ff;
---sev-none-bg:#1b1f27;--sev-none-fg:#e6e9ef;--sev-low-bg:#26313d;--sev-low-fg:#dbe5f0;--sev-medium-bg:#3d3010;--sev-medium-fg:#ffe7a8;
---sev-high-bg:#45230f;--sev-high-fg:#ffd2bb;--sev-critical-bg:#4a1714;--sev-critical-fg:#ffd0cc}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 "Segoe UI",system-ui,sans-serif}
+:root{color-scheme:${theme.mode};${vars}}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:var(--font-size)/var(--line-height) var(--font-family)}
 #card{height:100%;box-sizing:border-box;padding:10px;overflow:auto}
 .md-link{color:var(--link);text-decoration:underline;cursor:pointer}
 #card pre{overflow:auto;padding:6px;border:1px solid var(--border);border-radius:4px}

@@ -73,7 +73,9 @@ export interface PermissionLineView {
 }
 
 export interface OptionsState {
-  general: { startWithWindows: boolean; closeToTray: boolean; packaged: boolean };
+  general: { startWithWindows: boolean; closeToTray: boolean; packaged: boolean; theme: string; themeMode: "system" | "light" | "dark" };
+  /** Built-in themes for the picker (THEMES.md): which of light/dark each one has. */
+  themes: Array<{ id: string; name: string; light: boolean; dark: boolean; font: string }>;
   feeds: Array<{ taskId: string; name: string; schedule: "daily" | "weekdays" | "none"; graceHours: number; keep: number; folder: string; state: string }>;
   cards: Array<{
     cardId: string; name: string; state: string; message?: string; running: boolean; revoked: boolean;
@@ -84,5 +86,5 @@ export interface OptionsState {
 }
 
 export type OptionsPatch =
-  | { general: { startWithWindows?: boolean; closeToTray?: boolean } }
+  | { general: { startWithWindows?: boolean; closeToTray?: boolean; theme?: string; themeMode?: "system" | "light" | "dark" } }
   | { feed: { taskId: string; schedule?: "daily" | "weekdays" | "none"; graceHours?: number; keep?: number } };
