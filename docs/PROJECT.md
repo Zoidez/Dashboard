@@ -200,6 +200,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-17 | Machine-wide resource cap through `%USERPROFILE%\.wslconfig` (exception to the portable-instance rule; the user writes it) | User decision (option 1): WSL ignores Podman's `--cpus/--memory`; rootless gVisor containers have no limits. |
 | 2026-10-17 | Development / LASS container and egress proxy built and verified (INFRASTRUCTURE.md); gVisor wrapper flags `--overlay2=none --network=host`; the proxy resolves outside names through the DNS of network `egress` (fixed subnet, an N1 exception for infrastructure) | Found while building; each is explained in INFRASTRUCTURE.md. |
 | 2026-10-17 | Container backend (O1) built and tested against the real machine; not wired into the Dashboard until something uses it (LASS) | Keeps the host build, and its security-suite record, unchanged until the backend has a user. |
+| 2026-10-17 | **LASS approved** (LASS.md): rollout approved by the user every time; triage automatic, fix runs on the user's click; budget 10 triage / 2 fix runs per day; signals: repeated failed requests and "Something's wrong". **Host invariants 1, 8 and 13 amended** for LASS (RULES.md) | User approval of Claude's recommendations. |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)
 - Binary: release key fingerprint, signed manifest, SHA-256, Authenticode all verified. (gpg import exits 2 on "can't connect to the agent"; harmless.)

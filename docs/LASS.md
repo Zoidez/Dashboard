@@ -1,6 +1,12 @@
 # Dashboard — Live Automated Service Support (LASS)
 
-**Status: proposal (user idea, 2026-10-13). Not approved, not built.** Parts of it conflict with approved host invariants (section 9); those parts need a user decision before any code.
+**Status: approved by the user 2026-10-17, with the decisions below; phase 1 in progress.** The host invariants it touches (1, 8, 13) were amended the same day (RULES.md).
+
+**Decisions, 2026-10-17 (user approved Claude's recommendations):**
+- **Rollout:** the user approves every rollout; never automatic.
+- **Fix runs:** triage starts by itself; a fix run starts only on the user's click (for now). Fix runs run in the sealed development container (INFRASTRUCTURE.md, option A).
+- **Usage budget:** at most 10 triage calls and 2 fix runs per day.
+- **Signals:** repeated failed requests and the "Something's wrong" menu item; more later.
 
 **User decisions, 2026-10-13:**
 - The bottom-bar popout is called the **LASS bar**. It ends with a list of the steps only the user can do (section 7). Claude does every step it is able to do.
