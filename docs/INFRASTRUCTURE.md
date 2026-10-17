@@ -356,9 +356,19 @@ Results: `Build\data\podman\verify\20261017-055713\`.
 
 **Decided (user, 2026-10-17): option A for the development / LASS container: rootless + gVisor (`--ignore-cgroups`) + the machine user without passwordless sudo.** Isolation from the user's files comes first; per-container limits are given up there (one fix run at a time). Card workers, which need limits more, are decided when they are built. Checked by `setup\verify-podman-isolation.ps1`, which also sets the machine up that way (`-Restore` undoes the sudo change). Background, before the decision: in this machine a container can be rootless *or* have limits, not both, and gVisor rootless also gives up limits. Not yet tested: rootful gVisor with limits; removing the machine user's passwordless `sudo`; whether `podman machine init --cpus/--memory` limits the WSL machine at all (WSL normally takes its limits from the user's global `.wslconfig`).
 
+### Isolation checks (2026-10-17, `setup\verify-podman-isolation.ps1`; results `Build\data\podman\verify\20261017-060617-isolation\`)
+| Check | Answer |
+|---|---|
+| Whole-machine limits | **None.** `podman machine init --cpus 2 --memory 2048` has no effect on WSL: the machine sees all 20 CPUs and 31 959 MB (WSL's default, half the RAM). WSL takes machine limits only from the user's global `%USERPROFILE%\.wslconfig`. |
+| Rootful gVisor | **Runs and enforces limits** (a container holding 150 MB under a 64 MB limit is killed, exit 137), the same as rootful runc. Option B (rootful + gVisor + limits) is therefore possible, at the cost that a gVisor escape lands as root in the machine, where `C:` can be mounted. |
+| Option A set up on this machine | gVisor is the machine user's default runtime (`/usr/local/bin/runsc-rootless` = `runsc --ignore-cgroups`, set in `~/.config/containers/containers.conf.d/50-dashboard-gvisor.conf`); a hardened Pod from `podman kube play` runs under gVisor rootless (`4.19.0-gvisor`). |
+| No sudo | The user's sudo came from `%wheel ... NOPASSWD: ALL` in `/etc/sudoers`; the user was removed from `wheel`. After a restart the user cannot sudo and cannot mount `C:` ("must be superuser"); rootless gVisor and the root connection still work. `-Restore` adds the user to `wheel` again. |
+| Consequence | Under option A a runaway container is limited by nothing: it can use all 20 CPUs and up to 32 GB. See open item 6. |
+
 ## Open items (to verify on this PC before relying on them)
 1. ~~gVisor inside the Podman machine~~: answered above (rootless with ignore-cgroups).
 2. ~~Automatic mounting of Windows drives~~: answered above; re-check after every Podman update.
 3. ~~`podman kube play` support~~: answered above; Jobs work.
 4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? It may need specific endpoints allowlisted.
-5. Rootful gVisor with limits; the machine without passwordless `sudo`; limits for the whole WSL machine.
+5. ~~Rootful gVisor with limits; the machine without passwordless `sudo`; limits for the whole WSL machine~~: answered below (2026-10-17).
+6. **Resource cap for rootless gVisor containers** (no cgroups, no machine limit): `.wslconfig` exception, rlimits, or accept. User decision.
