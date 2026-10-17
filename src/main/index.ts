@@ -16,7 +16,7 @@ import { CardStorage } from "./services/storage.js";
 import { FileHelper } from "./services/files.js";
 import { OptionsStore } from "./options.js";
 import { FeedService } from "./reports/feeds.js";
-import { feedCard, feedCardId, installCard, reviewText, type Decide } from "./cards/install.js";
+import { feedCard, feedCardId, feedCardOutdated, installCard, reviewText, type Decide } from "./cards/install.js";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
@@ -175,18 +175,25 @@ const askUser: Decide = async (r) => {
   return res.response === 1;
 };
 
-/** Installs a watch-feed card for every configured feed that has none yet. */
+/**
+ * Installs a watch-feed card for every configured feed that has none yet, and offers the newer
+ * reference version to installed feed cards that run an older one (approved again by the user).
+ */
 async function installFeedCards(decide: Decide = askUser): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const f of options.feeds) {
     const id = feedCardId(f);
-    if (existsSync(join(paths.cards, id))) { out[id] = "already installed"; continue; }
     try {
-      const r = await installCard(await feedCard(f, join(distDir, "cards")), { cards: paths.cards, approvals: paths.approvals, config: paths.config }, (t) => options.feed(t)?.name ?? t, decide);
-      out[id] = r;
-      if (r === "installed") await host?.start(id);
+      const card = await feedCard(f, join(distDir, "cards"));
+      const installed = existsSync(join(paths.cards, id));
+      if (installed && !(await feedCardOutdated(card, approvals.get(id) ?? null))) { out[id] = "already installed"; continue; }
+      const dirs = { cards: paths.cards, approvals: paths.approvals, config: paths.config };
+      const r = await installCard(card, dirs, (t) => options.feed(t)?.name ?? t, decide, installed ? { stop: (cid) => host?.stop(cid, "being updated", "stopped") } : undefined);
+      out[id] = r === "installed" && installed ? "updated" : r;
+      if (r === "installed") { await approvals.load(id); host?.stopped.delete(id); await host?.start(id); }
     } catch (e) { out[id] = `failed: ${(e as Error).message}`; }
   }
+  // The menu gives feedback; a silent failure was reported by the user (2026-10-09).
   return out;
 }
 
@@ -199,7 +206,11 @@ function buildMenu(): void {
       { label: "Quit", accelerator: "Ctrl+Q", click: () => app.quit() },
     ] },
     { label: "Cards", submenu: [
-      { label: "Install watch-feed cards…", click: () => void installFeedCards() },
+      { label: "Install or update watch-feed cards…", click: () => void installFeedCards().then((r) => {
+        if (!win) return;
+        const lines = Object.entries(r).map(([id, v]) => `${id}: ${v}`);
+        void dialog.showMessageBox(win, { type: lines.some((l) => l.includes("failed")) ? "warning" : "info", title: "Watch-feed cards", message: "Watch-feed cards", detail: lines.join("\n") || "No feeds are set up in Options > Feeds.", noLink: true });
+      }) },
       { label: "Rescan cards", click: () => void host?.startAll() },
     ] },
     { label: "Help", submenu: [{ label: "Open instance folder", click: () => void electronShell.openPath(paths.root) }] },

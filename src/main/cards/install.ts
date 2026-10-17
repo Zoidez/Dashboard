@@ -9,7 +9,7 @@
  * For now this installs the reference cards that ship with the Dashboard (the watch feeds). The
  * generator pipeline will install generated cards through the same function.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import type { Permission } from "../broker/permissions.js";
@@ -38,7 +38,7 @@ export async function feedCard(feed: FeedConfig, sourceDir: string): Promise<Car
   ];
   const manifest = {
     id: cardId, name, version: "1.0.0", apiVersion: 0, preset: "watch-feed",
-    description: `Shows the latest report of "${name}", coloured by severity.`,
+    description: `Shows the latest report of "${name}".`,
     defaultSize: { w: 4, h: 4 }, permissions,
     configSchema: { type: "object", properties: { taskId: { type: "string", title: "Scheduled task ID", default: feed.taskId } } },
   };
@@ -52,10 +52,21 @@ export async function feedCard(feed: FeedConfig, sourceDir: string): Promise<Car
   };
 }
 
-export async function installCard(card: CardFiles, dirs: { cards: string; approvals: string; config: string }, taskName: (id: string) => string, decide: Decide): Promise<"installed" | "declined"> {
+/** Whether an installed feed card runs an older reference version (its ui.js or manifest differ from the shipped one). */
+export async function feedCardOutdated(card: CardFiles, installed: ApprovalRecord | null): Promise<boolean> {
+  if (!installed) return false;
+  return ["ui.js", "manifest.json"].some((rel) => installed.files[rel] !== createHash("sha256").update(card.files[rel]).digest("hex"));
+}
+
+/**
+ * Installs a reference card. With `replace`, an installed card of the same id is replaced by the new
+ * version after the user approves it again (the old folder is moved aside, the new one renamed in).
+ */
+export async function installCard(card: CardFiles, dirs: { cards: string; approvals: string; config: string }, taskName: (id: string) => string, decide: Decide, replace?: { stop: (cardId: string) => void }): Promise<"installed" | "declined"> {
   const target = join(dirs.cards, card.cardId);
-  try { await fsp.access(target); throw new Error(`${card.name} is already installed`); }
-  catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
+  let exists = false;
+  try { await fsp.access(target); exists = true; } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
+  if (exists && !replace) throw new Error(`${card.name} is already installed`);
   const temp = join(dirs.config, "_install", randomUUID());
   await fsp.mkdir(temp, { recursive: true });
   try {
@@ -71,9 +82,16 @@ export async function installCard(card: CardFiles, dirs: { cards: string; approv
       schema: 1, cardId: card.cardId, version: "1.0.0", versionHash: versionHash(hashes), files: hashes,
       permissions: card.permissions, approvedAt: new Date().toISOString(), revoked: false,
     };
+    let old: string | null = null;
+    if (exists) {
+      replace!.stop(card.cardId);
+      old = join(dirs.config, "_install", `old-${card.cardId}-${randomUUID()}`);
+      await fsp.rename(target, old);
+    }
     await fsp.mkdir(dirs.approvals, { recursive: true });
     await fsp.writeFile(join(dirs.approvals, `${card.cardId}.json`), JSON.stringify(rec, null, 2));
     await fsp.rename(temp, target);                                // the same folder that was hashed
+    if (old) await fsp.rm(old, { recursive: true, force: true });  // host-only copy of the replaced version
     return "installed";
   } finally {
     await fsp.rm(temp, { recursive: true, force: true }).catch(() => undefined);   // host-only temp folder; gone after rename

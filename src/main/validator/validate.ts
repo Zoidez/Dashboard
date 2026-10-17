@@ -13,11 +13,12 @@ import { FORBIDDEN_PERMISSION_TYPES, fsScopeCovers } from "../broker/permissions
 import { isCardFilePath } from "../cards/approvals.js";
 import { isInsideInstance } from "../instance.js";
 import { checkSyntax, PathSyntaxError } from "../../filehelper/path-syntax.js";
-import { staticChecks, svgChecks, type ApiUse } from "./static-checks.js";
+import { staticChecks, svgChecks, themeWarnings, type ApiUse } from "./static-checks.js";
 import { typecheck } from "./typecheck.js";
 
 export type Stage = "V0" | "V1" | "V2" | "V3" | "V4" | "V5";
-export interface StageResult { stage: Stage; title: string; errors: string[] }
+/** warnings never fail a stage (theme warnings in V4); they are shown to the user and sent with a retry. */
+export interface StageResult { stage: Stage; title: string; errors: string[]; warnings?: string[] }
 export interface Manifest { id: string; name: string; version: string; apiVersion: 0; worker?: boolean; permissions: Permission[]; [k: string]: unknown }
 
 export interface ValidationInput {
@@ -199,7 +200,7 @@ function stageV2(man: Manifest, uses: ApiUse[], input: ValidationInput): string[
 
 export async function validate(input: ValidationInput, streamsOf?: (p: string) => string[]): Promise<ValidationResult> {
   const stages: StageResult[] = [];
-  const done = (stage: Stage, errors: string[]) => { stages.push({ stage, title: TITLES[stage], errors }); return errors.length === 0; };
+  const done = (stage: Stage, errors: string[], warnings?: string[]) => { stages.push({ stage, title: TITLES[stage], errors, ...(warnings?.length ? { warnings } : {}) }); return errors.length === 0; };
 
   const v0 = await stageV0(input.dir, streamsOf);
   if (!done("V0", v0.errors)) return { ok: false, stages };
@@ -219,7 +220,8 @@ export async function validate(input: ValidationInput, streamsOf?: (p: string) =
 
   if (!done("V2", stageV2(manifest, uses, input))) return { ok: false, stages, card };
   if (!done("V3", typecheck({ files: codeFiles, hostApiDts: input.hostApiDts, libDir: input.tsLibDir }))) return { ok: false, stages, card };
-  if (!done("V4", v4errors)) return { ok: false, stages, card };
+  const v4warnings = Object.entries(codeFiles).flatMap(([p, src]) => themeWarnings(p, src));
+  if (!done("V4", v4errors, v4warnings)) return { ok: false, stages, card };
   if (input.hostSuiteProblem) { done("V5", [input.hostSuiteProblem]); return { ok: false, stages, card }; }
   if (input.smoke && !done("V5", await input.smoke(card))) return { ok: false, stages, card };
   return { ok: true, card, stages };
@@ -227,5 +229,12 @@ export async function validate(input: ValidationInput, streamsOf?: (p: string) =
 
 /** Errors in plain words, grouped by stage (V6): for the generator's retry and for the user. */
 export function report(stages: StageResult[]): string {
-  return stages.filter((s) => s.errors.length).map((s) => `${s.stage} ${s.title}:\n${s.errors.map((e) => `- ${e}`).join("\n")}`).join("\n\n");
+  const errs = stages.filter((s) => s.errors.length).map((s) => `${s.stage} ${s.title}:\n${s.errors.map((e) => `- ${e}`).join("\n")}`);
+  const warn = warnings(stages);
+  return [...errs, ...(warn ? [`Warnings (the card works, but fix these if you can):\n${warn}`] : [])].join("\n\n");
+}
+
+/** Theme warnings of all stages, one per line, or "" (generator rule 10). */
+export function warnings(stages: StageResult[]): string {
+  return stages.flatMap((s) => s.warnings ?? []).map((w) => `- ${w}`).join("\n");
 }

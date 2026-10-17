@@ -37,6 +37,8 @@ Fails on any of:
 - Node: `require`, `process`, `module`, `Buffer`, `globalThis` property access by computed string.
 - Each `api.*` call must be covered by a declared permission (e.g. `api.net.request` needs `net.http`, `api.fs.remove` needs `fs.delete`, `api.ui.openLink` needs `links.open`).
 - SVG assets: no scripts, no event attributes, no external references.
+**Theme warnings (never fail the card; THEMES.md rule 6, generator rule 10):** fixed colours (`#rrggbb`, `rgb()`, `hsl()`) and fixed pixel font sizes in card code. They go back to Claude with any retry ("Warnings: the card works, but fix these if you can") and the New card shows them to the user next to the result. They are not on the approval screen, which shows only permissions.
+
 Static checks catch honest mistakes and obvious tricks. They are not the boundary: the runtime wrapper (ARCHITECTURE.md, "The wrapper") is, and V5 tests it on this card.
 
 ## V5 — Smoke test with zero capabilities

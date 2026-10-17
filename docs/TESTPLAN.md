@@ -38,7 +38,7 @@ Tooling: Node's built-in test runner for host modules; Playwright's Electron sup
 4. Update diffs show added, removed and changed permissions.
 
 ## E. Feeds (PRESETS.md)
-1. Valid report: severity colour and label, bottom line, body, sources.
+1. Valid report: severity label (and the host frame's severity display), bottom line, body, sources.
 2. Invalid JSON, missing severity, `status: failed`, and an overdue report each show the "Feed offline" banner with the last good report kept.
 3. Markdown with script, HTML, `javascript:` links and remote images is rendered inert.
 4. Retention keeps the last 30 reports.

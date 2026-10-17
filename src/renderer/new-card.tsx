@@ -76,6 +76,7 @@ export function NewCard({ g, start, stop, testCli }: { g: GeneratorView; start: 
         <span className="progress" role="status">{g.message}{g.progress ? ` — ${g.progress}` : ""}</span>
       </div>
       {g.phase === "failed" && g.errors && <pre className="errors">{g.errors}</pre>}
+      {g.phase !== "failed" && g.warnings && <><p className="hint">The card works, but it does not fully follow the theme. Ask for an update to fix:</p><pre className="errors warnings">{g.warnings}</pre></>}
     </div>
   );
 }

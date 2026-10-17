@@ -46,7 +46,8 @@ How each task assigns it:
 
 Display rules for severity:
 - The level is always also shown as a text label on the card (never color alone).
-- Colors come from the host theme tokens, with text contrast meeting WCAG AA on each background in light and dark themes.
+- The card reports the level with `api.ui.setAccent`; the host frame shows it in the way the user's theme chooses (THEMES.md "Severity display"). The card does not colour its own background by severity (since 2026-10-16).
+- Colors come from the host theme, checked by `scripts/theme-check.mjs` for contrast (WCAG AA), brightness steps and colour blindness in every theme.
 - Severity is display-only. No card, and no host code, takes an action because of a severity value. Reason: it is written by a run that reads untrusted web content.
 - An invalid or missing severity makes the report invalid (counts as a failed fetch).
 

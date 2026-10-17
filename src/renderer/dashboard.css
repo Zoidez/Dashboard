@@ -67,6 +67,7 @@ button.danger { color: var(--err); }
 .newcard textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .newcard .progress { color: var(--muted); font-size: .923rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .newcard .errors { margin: 0; max-height: 40%; overflow: auto; white-space: pre-wrap; font: .923rem/1.4 Consolas, "Cascadia Mono", monospace; color: var(--err); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+.newcard .errors.warnings { color: var(--fg); max-height: 25%; }
 .newcard .gate-state { margin: 0; }
 .newcard .hint { color: var(--muted); font-size: .923rem; margin: 0; }
 button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }

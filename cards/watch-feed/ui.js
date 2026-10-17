@@ -1,6 +1,8 @@
 // Watch feed (preset "watch-feed", PRESETS.md; reference card 2 in CARDS.md).
-// Shows the latest valid report of one scheduled task, coloured by severity, with a "Feed offline"
-// banner when the feed fails. All report content is untrusted: text and api.ui.markdown only.
+// Shows the latest valid report of one scheduled task, with a "Feed offline" banner when the feed fails.
+// The severity is shown by the host frame, the way the user's theme chooses (api.ui.setAccent); the card
+// writes it only as a word. Colours and sizes come from the theme (CSS variables, em). All report content
+// is untrusted: text and api.ui.markdown only.
 
 const LABELS = { none: "None", low: "Low", medium: "Medium", high: "High", critical: "Critical" };
 const OFFLINE = { "invalid-file": "the newest report file is invalid", "run-failed": "the last run failed", overdue: "no report arrived when one was expected" };
@@ -67,17 +69,12 @@ function render(root, api, state) {
 }
 
 const CSS = `
-#card[data-severity] { background: var(--sev-bg); color: var(--sev-fg); }
-#card[data-severity="none"] { --sev-bg: var(--sev-none-bg); --sev-fg: var(--sev-none-fg); }
-#card[data-severity="low"] { --sev-bg: var(--sev-low-bg); --sev-fg: var(--sev-low-fg); }
-#card[data-severity="medium"] { --sev-bg: var(--sev-medium-bg); --sev-fg: var(--sev-medium-fg); }
-#card[data-severity="high"] { --sev-bg: var(--sev-high-bg); --sev-fg: var(--sev-high-fg); }
-#card[data-severity="critical"] { --sev-bg: var(--sev-critical-bg); --sev-fg: var(--sev-critical-fg); }
 .feed-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.feed-sev { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 12px; padding: 2px 6px; border: 1px solid currentColor; border-radius: 4px; }
-.feed-bottom { font-size: 15px; font-weight: 600; margin: 8px 0; }
-.feed-muted { opacity: .8; font-size: 12px; }
-.feed-offline { border: 2px solid var(--sev-critical-fg); background: var(--sev-critical-bg); color: var(--sev-critical-fg); padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; }
+.feed-sev { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: .923em; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; }
+.feed-bottom { font-size: 1.154em; font-weight: 600; margin: 8px 0; }
+.feed-muted { color: var(--muted); font-size: .923em; }
+.feed-offline { border: 2px solid var(--warn); padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; }
+.feed-offline strong { color: var(--warn); }
 .feed-sources { padding-left: 18px; }
 `;
 

@@ -16,7 +16,7 @@ import type { AuditLog } from "../audit.js";
 import type { Permission } from "../broker/permissions.js";
 import { CARD_ID_RE, hashCardFolder } from "../cards/approvals.js";
 import type { InstancePaths } from "../instance.js";
-import { report, validate, type LoadedCard, type StageResult } from "../validator/validate.js";
+import { report, validate, warnings, type LoadedCard, type StageResult } from "../validator/validate.js";
 import type { GateResult, GeneratorGate } from "./cli-gate.js";
 import { retryMessage, systemPrompt, userMessage, type PromptDocs } from "./prompt.js";
 import { MCP_JSON, runGenerator, SETTINGS_JSON, type RunResult } from "./runner.js";
@@ -33,6 +33,7 @@ export interface PipelineState {
   message?: string;
   progress?: string;
   errors?: string;
+  warnings?: string;
   gate?: { ok: boolean; code?: string; reason?: string; version?: string };
 }
 
@@ -116,7 +117,7 @@ export class GeneratorPipeline extends EventEmitter {
     this.ctl = new AbortController();
     const signal = this.ctl.signal;
     const kind = req.target.kind;
-    this.set({ phase: "checking", kind, cardId: undefined, attempt: 0, message: "checking the generator", progress: undefined, errors: undefined });
+    this.set({ phase: "checking", kind, cardId: undefined, attempt: 0, message: "checking the generator", progress: undefined, errors: undefined, warnings: undefined });
     try {
       const g = await this.d.checkGate();
       this.set({ gate: g.ok ? { ok: true, version: g.version } : { ok: false, code: g.code, reason: g.reason } });
@@ -184,7 +185,7 @@ export class GeneratorPipeline extends EventEmitter {
           manifestSchema: this.d.manifestSchema(), hostApiDts: this.d.hostApiDts(), tsLibDir: this.d.tsLibDir, hostSuiteProblem: this.d.hostSuiteProblem(), smoke: this.d.smoke,
         }, this.d.streamsOf);
         if (signal.aborted) return this.set({ phase: "stopped", message: "stopped by you" });
-        if (v.ok) return await this.approveAndInstall(v.card, kind, installed);
+        if (v.ok) { this.set({ warnings: warnings(v.stages) || undefined }); return await this.approveAndInstall(v.card, kind, installed); }
         const errors = report(v.stages);
         this.d.audit.write(cardId, "denied", `validation failed (attempt ${attempt + 1}): ${errors.slice(0, 500)}`);
         if (attempt === MAX_RETRIES || !sessionId) return this.fail(`The card did not pass validation${attempt ? ` after ${attempt} retries` : ""}.`, `${errors}${whatClaudeSaid(run, runDir)}`, v.stages);

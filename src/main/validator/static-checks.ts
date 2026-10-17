@@ -110,3 +110,23 @@ export function svgChecks(file: string, text: string): string[] {
   if (/url\(\s*["']?\s*(?!#)/i.test(text)) errors.push(`${file}: SVG style references something outside itself`);
   return errors;
 }
+
+/**
+ * Theme warnings (THEMES.md rule 6, generator rule 10): fixed colours and fixed pixel font sizes in card
+ * code. They do not fail validation (a see-through fill or a canvas drawing may need a literal colour);
+ * they go back to Claude with any retry and are shown to the user.
+ */
+export function themeWarnings(file: string, source: string): string[] {
+  const out: string[] = [];
+  const lines = source.split("\n");
+  const COLOR = /(?<![\w$#&-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(\s*\d/g;
+  const PX_FONT = /font-size\s*:\s*\d+(?:\.\d+)?px|\bfont\s*:[^;"'`]*?\b\d+(?:\.\d+)?px|fontSize\s*=\s*["'`]\d+(?:\.\d+)?px/gi;
+  lines.forEach((line, i) => {
+    const t = line.trim();
+    if (t.startsWith("//") || t.startsWith("*")) return;
+    // "#name" in an element selector is an id, not a colour.
+    if (!/querySelector|getElementById|closest\(|matches\(/.test(line)) for (const m of line.matchAll(COLOR)) out.push(`${file}:${i + 1}: fixed colour "${m[0].replace(/\(\s*\d$/, "(")}…": use the theme's CSS variables (var(--fg), var(--muted), var(--accent), var(--border), var(--sev-high) …) so the card follows the user's theme`);
+    for (const m of line.matchAll(PX_FONT)) out.push(`${file}:${i + 1}: fixed font size "${m[0].slice(0, 40)}": use relative sizes (em or rem) so the card follows the theme's base size`);
+  });
+  return out.slice(0, 10);
+}

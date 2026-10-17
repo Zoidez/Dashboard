@@ -32,6 +32,8 @@ export interface GeneratorView {
   message?: string;
   progress?: string;
   errors?: string;
+  /** Theme warnings for a card that passed (generator rule 10): fixed colours or pixel font sizes. */
+  warnings?: string;
   cardId?: string;
   attempt?: number;
   gate?: { ok: boolean; code?: string; reason?: string; version?: string };
