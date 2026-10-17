@@ -5,7 +5,8 @@
 
 .DESCRIPTION
   Steps (each one is recorded as PASS, FAIL or INFO, and the run continues after a failure):
-    S  Storage: the Podman machine is created with Podman's config and data pointed at Build\data\podman.
+    S  Storage: the Podman machine is created with Podman's home, config and data pointed at Build\data\podman
+       (env.ps1). S0 first removes a machine an earlier run left in the user profile.
        PASS only if its files land there and nothing new appears in the user profile.
     M  The machine starts, runs rootless, and reports its Podman version.
     A  Open item 2: automatic mounting of Windows drives is switched off inside the machine
@@ -35,9 +36,14 @@ $repoRoot  = Split-Path -Parent $PSScriptRoot
 $podmanDir = Join-Path $repoRoot "Build\data\podman"
 $envFile   = Join-Path $podmanDir "env.ps1"
 if (-not (Test-Path -LiteralPath $envFile)) { throw "Run setup\install-podman.ps1 first ($envFile is missing)." }
+$realProfile = $env:USERPROFILE; $realAppData = $env:APPDATA; $realLocal = $env:LOCALAPPDATA
 . $envFile
+if (-not $PodmanExe -or -not (Get-Command podman -CommandType Function -ErrorAction SilentlyContinue)) {
+  throw "env.ps1 comes from an older install script: run  setup\install-podman.ps1 -Version <installed version>  again (it only rewrites the config files)."
+}
 
 $Machine = "dashboard"
+$RootConn = "$Machine-root"
 $Distro  = "podman-$Machine"
 $Image   = "docker.io/library/alpine:3.20"
 $stamp   = (Get-Date).ToString("yyyyMMdd-HHmmss")
@@ -64,7 +70,8 @@ function Run([string]$exe, [string[]]$argList) {
   Log "$text`n(exit $code)`n"
   return @{ code = $code; out = $text }
 }
-function Pm([string[]]$a) { return Run "podman" $a }
+function Pm([string[]]$a) { return Run "podman" $a }                 # the env.ps1 function: Podman's home in Build\data\podman\home
+function PmRoot([string[]]$a) { return Run "podman" (@("--connection", $RootConn) + $a) }
 # Runs a shell script inside the machine; base64 avoids every quoting problem between PowerShell, ssh and sh.
 function InVm([string]$script, [switch]$Sudo) {
   $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script.Replace("`r", "")))
@@ -78,9 +85,30 @@ $ver = Pm @("--version"); Record "V" "Podman client" "INFO" $ver.out
 
 # ---------- S: storage stays under Build\data\podman ----------
 $profilePlaces = @(
-  (Join-Path $env:USERPROFILE ".config\containers"), (Join-Path $env:USERPROFILE ".local\share\containers"),
-  (Join-Path $env:APPDATA "containers"), (Join-Path $env:LOCALAPPDATA "containers"), (Join-Path $env:USERPROFILE ".ssh")
+  (Join-Path $realProfile ".config\containers"), (Join-Path $realProfile ".local\share\containers"),
+  (Join-Path $realAppData "containers"), (Join-Path $realLocal "containers"), (Join-Path $realProfile ".ssh")
 )
+
+# S0: the first run (2026-10-17) left the machine's config in the real profile: Podman 6 ignores
+# XDG_CONFIG_HOME for it. Remove that machine with the real profile, then the files that run created.
+$oldWsl = Join-Path $realProfile ".config\containers\podman\machine\wsl"
+if (Test-Path -LiteralPath (Join-Path $oldWsl "$Machine.json")) {
+  $rm = Run $PodmanExe @("machine", "rm", "-f", $Machine)
+  $removed = @()
+  foreach ($f in "$Machine.json", "$Machine.ign", "$Machine.lock") { $p = Join-Path $oldWsl $f; if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force; $removed += $p } }
+  $conn = Join-Path $realAppData "containers\podman-connections.json"
+  if (Test-Path -LiteralPath $conn) {
+    $names = @(); try { $names = @((Get-Content -LiteralPath $conn -Raw | ConvertFrom-Json).Connection.Connections.PSObject.Properties.Name) } catch { $names = @("unreadable") }
+    if (@($names | Where-Object { $_ -and $_ -ne $Machine -and $_ -ne $RootConn }).Count -eq 0) {
+      foreach ($p in $conn, "$conn.lock") { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force; $removed += $p } }
+    } else { $removed += "(kept ${conn}: it lists other connections: $($names -join ', '))" }
+  }
+  # Empty folders that run created, from the inside out; never .config or AppData themselves.
+  foreach ($d in $oldWsl, (Split-Path $oldWsl), (Join-Path $realProfile ".config\containers\podman"), (Join-Path $realProfile ".config\containers"), (Join-Path $realAppData "containers")) {
+    if ((Test-Path -LiteralPath $d) -and -not (Get-ChildItem -LiteralPath $d -Force)) { Remove-Item -LiteralPath $d -Force; $removed += "$d\" }
+  }
+  Record "S0" "Machine from the first run removed from the user profile" $(if ($rm.code -eq 0) { "INFO" } else { "FAIL" }) "$($rm.out)`n$($removed -join "`n")"
+}
 function Snapshot { $h = @{}; foreach ($p in $profilePlaces) { if (Test-Path -LiteralPath $p) { Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object { $h[$_.FullName] = $_.LastWriteTimeUtc.Ticks } } }; return $h }
 $before = Snapshot
 
@@ -123,31 +151,49 @@ $fix = @'
 f=/etc/wsl.conf
 touch $f
 [ -f $f.dashboard-bak ] || cp $f $f.dashboard-bak
-if grep -q '^\[automount\]' $f; then
-  sed -i '/^\[automount\]/,/^\[/{/^enabled[ ]*=/d;/^mountFsTab[ ]*=/d}' $f
-  sed -i '/^\[automount\]/a enabled=false\nmountFsTab=false' $f
-else
-  printf '\n[automount]\nenabled=false\nmountFsTab=false\n' >> $f
-fi
+set_key() {
+  if grep -q "^\[$1\]" $f; then
+    sed -i "/^\[$1\]/,/^\[/{/^$2[ ]*=/d}" $f
+    sed -i "/^\[$1\]/a $2=$3" $f
+  else
+    printf '\n[%s]\n%s=%s\n' "$1" "$2" "$3" >> $f
+  fi
+}
+set_key automount enabled false
+set_key automount mountFsTab false
+set_key interop enabled false
+set_key interop appendWindowsPath false
 cat $f
 '@
 $w = InVm $fix -Sudo
-Record "A2" "Set [automount] enabled=false in /etc/wsl.conf (backup: /etc/wsl.conf.dashboard-bak)" $(if ($w.code -eq 0) { "INFO" } else { "FAIL" }) $w.out
+Record "A2" "/etc/wsl.conf: no drive mounting, no Windows interop (backup: /etc/wsl.conf.dashboard-bak)" $(if ($w.code -eq 0) { "INFO" } else { "FAIL" }) $w.out
 [void](Pm @("machine", "stop", $Machine)); [void](Run "wsl.exe" @("--terminate", $Distro))
 $start2 = Pm @("machine", "start", $Machine)
 $mAfter = InVm "mount | grep -Ei ' /mnt/[a-z] |drvfs|9p' ; ls /mnt 2>&1; test -e /mnt/c/Windows && echo WINDOWS-C-VISIBLE || echo no-windows-c"
 $sees = $mAfter.out -match "WINDOWS-C-VISIBLE" -or $mAfter.out -match "drvfs"
 Record "A3" "After restart: no Windows drive mounted, machine still starts" $(if (-not $sees -and $start2.code -eq 0) { "PASS" } else { "FAIL" }) "$($start2.out)`n$($mAfter.out)"
+$io = InVm 'test -e /proc/sys/fs/binfmt_misc/WSLInterop && echo INTEROP-ON || echo interop-off; echo "WSL_INTEROP=$WSL_INTEROP"'
+Record "A5" "Windows interop off (the machine cannot start Windows programs)" $(if ($io.out -match "interop-off" -and $io.out -match "WSL_INTEROP=\s*$") { "PASS" } else { "FAIL" }) $io.out
+# The real question for X3: can root inside the machine mount C: by hand, despite automount being off?
+$mc = InVm 'mkdir -p /tmp/wincheck; if mount -t drvfs C: /tmp/wincheck 2>&1; then ls /tmp/wincheck | head -3; echo MOUNTED-C; umount /tmp/wincheck; else echo mount-refused; fi' -Sudo
+Record "A6" "Root inside the machine cannot mount C: by hand" $(if ($mc.out -match "MOUNTED-C") { "FAIL" } else { "PASS" }) $mc.out
+$su = InVm 'sudo -n true 2>/dev/null && echo SUDO-WITHOUT-PASSWORD || echo sudo-needs-password'
+Record "A7" "The machine's user and sudo" "INFO" $su.out
 Record "A4" "Survives Podman updates?" "INFO" "Not testable now. Re-run this script after every Podman update (it re-checks A3)."
 
 # ---------- G: gVisor (open item 1) ----------
+# gVisor ships as a tarball with runsc inside (gvisor.dev install docs, 2026-10-17); runsc alone is no longer published.
 $g = @'
 set -e
 cd /tmp
 U=https://storage.googleapis.com/gvisor/releases/release/latest/x86_64
-curl -fsSLO "$U/runsc" && curl -fsSLO "$U/runsc.sha512"
-sha512sum -c runsc.sha512
-sudo install -m 755 runsc /usr/local/bin/runsc
+if command -v zstd >/dev/null; then T=gvisor.tar.zstd; X="--zstd"; else T=gvisor.tar.bz2; X="-j"; fi
+curl -fsSLO "$U/$T" && curl -fsSLO "$U/$T.sha512"
+sha512sum -c "$T.sha512"
+sudo mkdir -p /usr/local/lib/gvisor
+sudo tar $X -xf "$T" -C /usr/local/lib/gvisor
+R=$(find /usr/local/lib/gvisor -name runsc -type f | head -1)
+sudo ln -sf "$R" /usr/local/bin/runsc
 /usr/local/bin/runsc --version
 '@
 $gi = InVm $g
@@ -265,23 +311,30 @@ foreach ($k in $files.Keys) { [IO.File]::WriteAllText((Join-Path $kubeDir "$k.ya
 function Play($k) { return Pm @("kube", "play", (Join-Path $kubeDir "$k.yaml")) }
 function Ctr($pod) { return "$pod-main" }
 
-$p = Play "pod"
-if ($p.code -ne 0) { Record "K1" "kube play: Pod" "FAIL" $p.out }
-else {
-  Record "K1" "kube play: Pod" "PASS"
+# The Pod test runs rootless (the default connection) and rootful (the machine's root connection):
+# in Podman's WSL machine, rootless containers cannot get resource limits (cgroup controllers are not
+# delegated to the user; seen 2026-10-17), rootful ones can.
+function TestPod([scriptblock]$P, [string]$tag, [string]$label) {
+  $play = & $P @("kube", "play", (Join-Path $kubeDir "pod.yaml"))
+  if ($play.code -ne 0) { Record "K1$tag" "kube play: Pod with limits ($label)" "FAIL" $play.out; return }
+  Record "K1$tag" "kube play: Pod with limits ($label)" "PASS"
   $c = Ctr "verify-pod"
-  $j = (Pm @("inspect", $c, "--format", "{{json .HostConfig.Memory}}|{{json .HostConfig.NanoCpus}}|{{json .HostConfig.CpuQuota}}|{{json .HostConfig.ReadonlyRootfs}}|{{json .HostConfig.CapDrop}}|{{json .HostConfig.SecurityOpt}}|{{json .Config.User}}|{{json .Config.Healthcheck}}")).out
+  $j = (& $P @("inspect", $c, "--format", "{{json .HostConfig.Memory}}|{{json .HostConfig.NanoCpus}}|{{json .HostConfig.CpuQuota}}|{{json .HostConfig.ReadonlyRootfs}}|{{json .HostConfig.CapDrop}}|{{json .HostConfig.SecurityOpt}}|{{json .Config.User}}|{{json .Config.Healthcheck}}")).out
   $parts = $j -split "\|"
-  Record "K2" "Memory limit 64Mi honoured" $(if ($parts[0] -eq "67108864") { "PASS" } else { "FAIL" }) "Memory=$($parts[0])"
-  Record "K3" "CPU limit honoured" $(if (($parts[1] -ne "0" -and $parts[1]) -or ($parts[2] -ne "0" -and $parts[2])) { "PASS" } else { "FAIL" }) "NanoCpus=$($parts[1]) CpuQuota=$($parts[2])"
-  Record "K4" "readOnlyRootFilesystem honoured" $(if ($parts[3] -eq "true") { "PASS" } else { "FAIL" }) "ReadonlyRootfs=$($parts[3])"
-  Record "K5" "capabilities drop ALL honoured" $(if ($parts[4] -match "ALL|CAP_") { "PASS" } else { "FAIL" }) "CapDrop=$($parts[4])"
-  Record "K6" "allowPrivilegeEscalation=false -> no-new-privileges" $(if ($parts[5] -match "no-new-privileges") { "PASS" } else { "FAIL" }) "SecurityOpt=$($parts[5])"
-  Record "K7" "runAsUser 10001 honoured" $(if ($parts[6] -match "10001") { "PASS" } else { "FAIL" }) "User=$($parts[6])"
-  Record "K8" "Probes become a health check" $(if ($parts[7] -and $parts[7] -ne "null") { "PASS" } else { "FAIL" }) "Healthcheck=$($parts[7])"
-  $wr = Pm @("exec", $c, "sh", "-c", "touch /x 2>&1; echo exit=`$?")
-  Record "K9" "Root filesystem really read-only" $(if ($wr.out -match "Read-only|exit=1") { "PASS" } else { "FAIL" }) $wr.out
+  Record "K2$tag" "Memory limit 64Mi honoured ($label)" $(if ($parts[0] -eq "67108864") { "PASS" } else { "FAIL" }) "Memory=$($parts[0])"
+  Record "K3$tag" "CPU limit honoured ($label)" $(if (($parts[1] -ne "0" -and $parts[1]) -or ($parts[2] -ne "0" -and $parts[2])) { "PASS" } else { "FAIL" }) "NanoCpus=$($parts[1]) CpuQuota=$($parts[2])"
+  Record "K4$tag" "readOnlyRootFilesystem honoured ($label)" $(if ($parts[3] -eq "true") { "PASS" } else { "FAIL" }) "ReadonlyRootfs=$($parts[3])"
+  Record "K5$tag" "capabilities drop ALL honoured ($label)" $(if ($parts[4] -match "ALL|CAP_") { "PASS" } else { "FAIL" }) "CapDrop=$($parts[4])"
+  Record "K6$tag" "allowPrivilegeEscalation=false -> no-new-privileges ($label)" $(if ($parts[5] -match "no-new-privileges") { "PASS" } else { "FAIL" }) "SecurityOpt=$($parts[5])"
+  Record "K7$tag" "runAsUser 10001 honoured ($label)" $(if ($parts[6] -match "10001") { "PASS" } else { "FAIL" }) "User=$($parts[6])"
+  Record "K8$tag" "Probes become a health check ($label)" $(if ($parts[7] -and $parts[7] -ne "null") { "PASS" } else { "FAIL" }) "Healthcheck=$($parts[7])"
+  $wr = & $P @("exec", $c, "sh", "-c", "touch /x 2>&1; echo exit=`$?")
+  Record "K9$tag" "Root filesystem really read-only ($label)" $(if ($wr.out -match "Read-only|exit=1") { "PASS" } else { "FAIL" }) $wr.out
+  [void](& $P @("kube", "down", (Join-Path $kubeDir "pod.yaml")))
 }
+[void](PmRoot @("pull", "-q", $Image))
+TestPod ${function:Pm} "" "rootless"
+TestPod ${function:PmRoot} "r" "rootful"
 $p = Play "config"
 if ($p.code -ne 0) { Record "K10" "kube play: ConfigMap + Secret as files" "FAIL" $p.out }
 else {

@@ -42,7 +42,10 @@ if ($rel.prerelease) { throw "v$Version is a pre-release; pass a stable -Version
 Write-Host "Podman v$Version"
 
 $target = Join-Path $vendorDir $Version
-if (Test-Path -LiteralPath (Join-Path $target "podman.exe")) { Write-Host "Already installed: $target"; exit 0 }
+# Already installed: only the config files below are written again (run with -Version to keep that version).
+$already = Test-Path -LiteralPath (Join-Path $target "podman.exe")
+if ($already) { Write-Host "Already installed: $target (writing the config files again)" }
+if (-not $already) {
 
 $zipAsset  = $rel.assets | Where-Object { $_.name -eq "podman-remote-release-windows_amd64.zip" }
 $sumsAsset = $rel.assets | Where-Object { $_.name -eq "shasums" }
@@ -87,8 +90,9 @@ $record = [ordered]@{
                  [ordered]@{ name = $_.Name; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLower() } })
 }
 [IO.File]::WriteAllText((Join-Path $vendorDir "install.json"), (ConvertTo-Json -InputObject $record -Depth 5))
+}
 
-# 5. Podman's own folders under Build\data\podman, and env.ps1 that points Podman at them
+# 5. Podman's own folders under Build\data\podman, and env.ps1 that points Podman at them (its home included)
 foreach ($d in "config", "data") { New-Item -ItemType Directory -Force -Path (Join-Path $podmanDir $d) | Out-Null }
 $conf = Join-Path $podmanDir "containers.conf"
 if (-not (Test-Path -LiteralPath $conf)) {
@@ -97,16 +101,29 @@ if (-not (Test-Path -LiteralPath $conf)) {
 }
 $envPs1 = @"
 # Dot-source before using podman by hand:  . "$podmanDir\env.ps1"
-# Points Podman's config and data at Build\data\podman instead of the user profile. Written by setup\install-podman.ps1.
+# Written by setup\install-podman.ps1. Podman 6 on Windows keeps its machine config under the user's home
+# (USERPROFILE, APPDATA) whatever XDG_CONFIG_HOME says (seen 2026-10-17), so the podman command below runs
+# podman.exe with those pointed at Build\data\podman\home, only for that call. The rest of the shell keeps
+# the real profile.
+`$PodmanExe  = "$target\podman.exe"
+`$PodmanHome = "$podmanDir\home"
 `$env:XDG_CONFIG_HOME = "$podmanDir\config"
 `$env:XDG_DATA_HOME   = "$podmanDir\data"
 `$env:CONTAINERS_CONF = "$conf"
 `$env:CONTAINERS_MACHINE_PROVIDER = "wsl"
-`$env:PATH = "$target;" + `$env:PATH
+function podman {
+  `$saved = @{ USERPROFILE = `$env:USERPROFILE; HOME = `$env:HOME; APPDATA = `$env:APPDATA; LOCALAPPDATA = `$env:LOCALAPPDATA }
+  try {
+    `$env:USERPROFILE = `$PodmanHome; `$env:HOME = `$PodmanHome
+    `$env:APPDATA = "`$PodmanHome\AppData\Roaming"; `$env:LOCALAPPDATA = "`$PodmanHome\AppData\Local"
+    & `$PodmanExe @args
+  } finally { foreach (`$k in `$saved.Keys) { Set-Item "env:`$k" `$saved[`$k] } }
+}
 "@
+foreach ($d in "home\AppData\Roaming", "home\AppData\Local") { New-Item -ItemType Directory -Force -Path (Join-Path $podmanDir $d) | Out-Null }
 [IO.File]::WriteAllText((Join-Path $podmanDir "env.ps1"), $envPs1)
 
-Remove-Item -LiteralPath $dlDir -Recurse -Force
+Remove-Item -LiteralPath $dlDir -Recurse -Force -ErrorAction SilentlyContinue
 & (Join-Path $target "podman.exe") --version
 Write-Host "Installed to $target"
 Write-Host "Do not run 'podman machine init' yet: the verification script does that and checks where the files land."
