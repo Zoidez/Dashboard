@@ -38,7 +38,13 @@ export interface ShellDeps {
     start: (req: NewCardRequest) => void;
     stop: () => void;
     testCli: () => void;
+    /** Cancel investigation (LASS.md 5): closes it as dismissed and unblocks the New card. */
+    lassCancel: (id: string) => void;
   };
+  /** LASS activity log (LASS.md 3): the user's actions in the Dashboard. */
+  activity?: (source: "user" | "host", kind: string, target?: string, data?: Record<string, unknown>) => void;
+  /** Help > Something's wrong: opens an investigation with the user's text. */
+  report: (text: string) => Promise<{ id: string | null; message: string }>;
 }
 
 const ACTIONS = new Set<CardAction>(["stop", "start", "revoke", "grant"]);
@@ -59,6 +65,7 @@ function categorySummary(rec: ApprovalRecord): Record<PermissionCategory, { stat
 
 export class Shell {
   private optionsWin: BrowserWindow | null = null;
+  private reportWin: BrowserWindow | null = null;
   private tray: Tray | null = null;
   private quitting = false;
   private pushTimer: NodeJS.Timeout | null = null;
@@ -72,6 +79,7 @@ export class Shell {
       if (!fromGrid(e) || typeof update !== "object" || update === null) return;
       d.layout.apply(update);
       d.layout.save();
+      d.activity?.("user", "grid.layout");
       this.push();
     });
     ipcMain.on("dashboard:card-action", (e, cardId, action) => { if (fromGrid(e)) void this.cardAction(cardId, action, w); });
@@ -89,9 +97,20 @@ export class Shell {
       if (!fromGrid(e) || typeof req !== "object" || req === null) return;
       const r = req as Record<string, unknown>;
       if (typeof r.text !== "string" || r.text.length > 20_000 || typeof r.target !== "string" || (r.preset !== null && r.preset !== "watch-feed")) return;
+      d.activity?.("user", "newcard.submit", r.target, { text: r.text, preset: r.preset });
       d.generator.start({ text: r.text, target: r.target, preset: r.preset });
     });
-    ipcMain.on("new:stop", (e) => { if (fromGrid(e)) d.generator.stop(); });
+    ipcMain.on("new:stop", (e) => { if (fromGrid(e)) { d.activity?.("user", "newcard.stop"); d.generator.stop(); } });
+    ipcMain.on("new:lass-cancel", (e, id) => { if (fromGrid(e) && typeof id === "string" && id.length < 80) { d.activity?.("user", "lass.cancel", id); d.generator.lassCancel(id); } });
+
+    // Help > Something's wrong (LASS.md 5): only the report window may send, and only text.
+    const fromReport = (e: IpcMainInvokeEvent | IpcMainEvent) => !!this.reportWin && e.sender === this.reportWin.webContents;
+    ipcMain.handle("report:send", async (e, text) => {
+      if (!fromReport(e) || typeof text !== "string" || !text.trim() || text.length > 4000) return { id: null, message: "Nothing was sent." };
+      d.activity?.("user", "lass.report", undefined, { text });
+      return d.report(text);
+    });
+    ipcMain.on("report:close", (e) => { if (fromReport(e)) this.reportWin?.close(); });
     ipcMain.on("new:test-cli", (e) => { if (fromGrid(e)) d.generator.testCli(); });
 
     const fromOptions = (e: IpcMainInvokeEvent) => !!this.optionsWin && e.sender === this.optionsWin.webContents;
@@ -154,6 +173,7 @@ export class Shell {
   private async cardAction(cardId: unknown, action: unknown, parent: BrowserWindow): Promise<void> {
     const host = this.d.host();
     if (!host || typeof cardId !== "string" || !ACTIONS.has(action as CardAction)) return;
+    this.d.activity?.("user", `card.${action as string}`, cardId);
     const name = host.cards.get(cardId)?.name ?? host.stopped.get(cardId)?.name ?? cardId;
     switch (action as CardAction) {
       case "stop": host.stop(cardId, "stopped by you", "stopped"); break;
@@ -175,8 +195,24 @@ export class Shell {
 
   // ---------- Options ----------
 
+  /** Help > Something's wrong. */
+  openReport(): void {
+    if (this.reportWin && !this.reportWin.isDestroyed()) { this.reportWin.show(); this.reportWin.focus(); return; }
+    const r = new BrowserWindow({
+      width: 520, height: 380, title: "Something's wrong", parent: this.d.win, show: false, autoHideMenuBar: true,
+      webPreferences: { preload: join(this.d.distDir, "preload", "report.js"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, spellcheck: true, devTools: this.d.devTools },
+    });
+    r.setMenu(null);
+    r.once("ready-to-show", () => r.show());
+    r.on("closed", () => { this.reportWin = null; });
+    this.reportWin = r;
+    this.d.activity?.("user", "window.report");
+    void r.loadFile(join(this.d.distDir, "renderer", "report.html"));
+  }
+
   openOptions(): void {
     if (this.optionsWin && !this.optionsWin.isDestroyed()) { this.optionsWin.show(); this.optionsWin.focus(); return; }
+    this.d.activity?.("user", "window.options");
     const o = new BrowserWindow({
       width: 820, height: 640, title: "Options", parent: this.d.win, show: false, autoHideMenuBar: true,
       webPreferences: {
@@ -231,12 +267,13 @@ export class Shell {
     if (p && typeof p === "object" && "general" in p && p.general && typeof p.general === "object") {
       const before = { ...this.d.options.general };
       this.d.options.setGeneral(p.general);
+      this.d.activity?.("user", "options.general", undefined, { ...p.general });
       const after = this.d.options.general;
       if (after.startWithWindows !== before.startWithWindows) this.applyLoginItem();
       if (after.theme !== before.theme || after.themeMode !== before.themeMode) this.d.themeChanged();
     } else if (p && typeof p === "object" && "feed" in p && p.feed && typeof p.feed.taskId === "string") {
       const { taskId, ...rest } = p.feed;
-      if (this.d.options.setFeed(taskId, rest)) void this.d.feeds.rescan(taskId);
+      if (this.d.options.setFeed(taskId, rest)) { this.d.activity?.("user", "options.feed", taskId, { ...rest }); void this.d.feeds.rescan(taskId); }
     }
   }
 

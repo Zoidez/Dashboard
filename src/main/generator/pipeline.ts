@@ -18,7 +18,8 @@ import { CARD_ID_RE, hashCardFolder } from "../cards/approvals.js";
 import type { InstancePaths } from "../instance.js";
 import { report, validate, warnings, type LoadedCard, type StageResult } from "../validator/validate.js";
 import type { GateResult, GeneratorGate } from "./cli-gate.js";
-import { retryMessage, systemPrompt, userMessage, type PromptDocs } from "./prompt.js";
+import { retryMessage, systemPrompt, userMessage, type PreviousAttempt, type PromptDocs } from "./prompt.js";
+import type { Outcome } from "../lass/prompts.js";
 import { MCP_JSON, runGenerator, SETTINGS_JSON, type RunResult } from "./runner.js";
 
 export const MAX_RETRIES = 3;
@@ -62,6 +63,17 @@ export interface PipelineDeps {
   install: (card: LoadedCard, permissions: Permission[], kind: "new" | "update") => Promise<void>;
   audit: AuditLog;
   timeoutMs?: number;
+  /** LASS (docs/LASS.md): blocks new-card requests during an investigation, keeps the prompt history,
+   *  and hands up to two earlier failed requests to the generator as data. */
+  lass?: LassHooks;
+}
+
+export interface LassHooks {
+  /** An open investigation of new-card requests, if any (the New card then refuses). */
+  blocking(): { id: string; state: string; summary?: string } | null;
+  submitted(r: { kind: "new" | "update"; target: string; preset: string | null; text: string }): string;
+  finished(historyId: string, outcome: Outcome, extra: { cardId?: string; reply?: string }): void;
+  previous(historyId: string): PreviousAttempt[];
 }
 
 function slug(text: string): string {
@@ -114,6 +126,32 @@ export class GeneratorPipeline extends EventEmitter {
   async start(req: GenerationRequest): Promise<void> {
     if (this.busy) throw new Error("a generation is already running");
     if (typeof req.text !== "string" || !req.text.trim() || req.text.length > 20_000) throw new Error("type what the card should do (at most 20,000 characters)");
+    const blocked = req.target.kind === "new" ? this.d.lass?.blocking() : null;
+    if (blocked) {
+      this.set({ phase: "failed", kind: "new", cardId: undefined, progress: undefined, warnings: undefined, errors: undefined,
+        message: "LASS is looking into the failed requests for new cards. You can keep using the rest of the Dashboard, or cancel the investigation below." });
+      return;
+    }
+    const historyId = this.d.lass?.submitted({ kind: req.target.kind, target: req.target.kind === "new" ? "new" : req.target.cardId, preset: req.preset, text: req.text });
+    this.lastReply = undefined;
+    try {
+      await this.run(req, historyId);
+    } finally {
+      if (historyId) this.d.lass!.finished(historyId, this.outcomeOf(), { cardId: this.state.cardId, reply: this.state.phase === "failed" ? this.lastReply : undefined });
+    }
+  }
+
+  /** The request's outcome for the prompt history, from the final state. */
+  private outcomeOf(): Outcome {
+    const s = this.state;
+    if (s.phase === "stopped") return "stopped";
+    if (s.phase === "done") return s.message?.startsWith("not approved") ? "rejected" : "installed";
+    return s.message?.startsWith("The card did not pass validation") ? "failed: validation" : "failed: run";
+  }
+
+  private lastReply: string | undefined;
+
+  private async run(req: GenerationRequest, historyId: string | undefined): Promise<void> {
     this.ctl = new AbortController();
     const signal = this.ctl.signal;
     const kind = req.target.kind;
@@ -145,7 +183,8 @@ export class GeneratorPipeline extends EventEmitter {
       let sessionId: string | undefined;
       if (kind === "update") { try { sessionId = (JSON.parse(await fsp.readFile(sessionFile, "utf8")) as { sessionId?: string }).sessionId; } catch { /* new conversation */ } }
       const sys = systemPrompt(this.d.docs());
-      let prompt = userMessage({ cardId, kind, preset: req.preset, feeds: this.d.feeds?.() }, req.text);
+      const previous = historyId && kind === "new" ? this.d.lass!.previous(historyId) : [];
+      let prompt = userMessage({ cardId, kind, preset: req.preset, feeds: this.d.feeds?.(), previous }, req.text);
 
       // Each run's output stream, for the user and for diagnosis (the CLI's own transcript lives in data/claude, which the Dashboard never reads).
       const runDir = join(this.d.paths.generator, "runs", cardId, requestId);
@@ -167,6 +206,7 @@ export class GeneratorPipeline extends EventEmitter {
             configDir: join(this.d.paths.data, "claude"), timeoutMs: this.d.timeoutMs ?? 10 * 60_000, logFile: runLog(attempt, "-new-conversation"), onProgress: (t) => this.set({ progress: t }),
           }, signal);
         }
+        if (run.text) this.lastReply = run.text;
         if (run.stopped) return this.set({ phase: "stopped", message: "stopped by you" });
         if (run.sessionId) {
           sessionId = run.sessionId;

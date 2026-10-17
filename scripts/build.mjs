@@ -23,6 +23,8 @@ await Promise.all([
   build({ ...common, entryPoints: ["src/preload/options.ts"], outfile: "dist/preload/options.js", platform: "browser", format: "cjs", external: ["electron"] }),
   build({ ...common, entryPoints: ["src/preload/canvas.ts"], outfile: "dist/preload/canvas.js", platform: "browser", format: "cjs", external: ["electron"] }),
   build({ ...common, entryPoints: ["src/renderer/canvas.tsx"], outfile: "dist/renderer/canvas.js", platform: "browser", format: "esm", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' } }),
+  build({ ...common, entryPoints: ["src/renderer/report.tsx"], outfile: "dist/renderer/report.js", platform: "browser", format: "esm", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' } }),
+  build({ ...common, entryPoints: ["src/preload/report.ts"], outfile: "dist/preload/report.js", platform: "browser", format: "cjs", external: ["electron"] }),
 ]);
 cpSync("src/renderer/index.html", "dist/renderer/index.html");
 cpSync("src/renderer/dashboard.css", "dist/renderer/dashboard.css");
@@ -30,6 +32,8 @@ cpSync("src/renderer/options.html", "dist/renderer/options.html");
 cpSync("src/renderer/options.css", "dist/renderer/options.css");
 cpSync("src/renderer/canvas.html", "dist/renderer/canvas.html");
 cpSync("src/renderer/canvas.css", "dist/renderer/canvas.css");
+cpSync("src/renderer/report.html", "dist/renderer/report.html");
+cpSync("src/renderer/report.css", "dist/renderer/report.css");
 // What the generator is given (GENERATOR-PROMPT.md): read from the design docs at build time.
 mkdirSync("dist/generator", { recursive: true });
 for (const f of ["docs/GENERATOR-PROMPT.md", "docs/RULES.md", "docs/PRESETS.md", "spec/manifest.schema.json"]) cpSync(f, "dist/generator/" + f.split("/").pop());
@@ -60,7 +64,7 @@ for (const fam of ["inter", "ibm-plex-sans", "source-sans-3"]) {
   }
 }
 writeFileSync("dist/fonts/fonts.css", faces.join("\n") + "\n");
-for (const f of ["index", "options", "canvas"]) {
+for (const f of ["index", "options", "canvas", "report"]) {
   const p = `dist/renderer/${f}.html`;
   writeFileSync(p, readFileSync(p, "utf8").replace('<link rel="stylesheet" href="dashboard.css">', '<link rel="stylesheet" href="../fonts/fonts.css">\n  <link rel="stylesheet" href="dashboard.css">'));
 }

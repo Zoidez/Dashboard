@@ -1,0 +1,7 @@
+.report { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; height: 100%; }
+.report h1 { font-size: 1.154rem; margin: 0; }
+.report p { margin: 0; color: var(--muted); }
+.report textarea { flex: 1; min-height: 8em; resize: none; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+.report textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.report .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.report .result { color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; }

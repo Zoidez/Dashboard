@@ -1,6 +1,6 @@
 # Dashboard — Live Automated Service Support (LASS)
 
-**Status: approved by the user 2026-10-17, with the decisions below; phase 1 in progress.** The host invariants it touches (1, 8, 13) were amended the same day (RULES.md).
+**Status: approved by the user 2026-10-17, with the decisions below. Phase 1 built 2026-10-17** (`src/main/lass/`): activity log (`Build\data\activity\`), prompt history (`Build\data\lass\prompts.jsonl`) with the host pre-filter (logged as `prefilter`; the same-card check and opening an investigation from it wait for triage), up to two earlier failed requests in the generator's request header (4.6), investigations with queue, restart, time limits and blocking of their function only (`Build\data\lass\investigations\`), Cancel on the New card, and Help > Something's wrong. Without triage (phase 2) an investigation closes at the triage step as "failed: triage is not built yet" and keeps its record. The host invariants it touches (1, 8, 13) were amended the same day (RULES.md).
 
 **Decisions, 2026-10-17 (user approved Claude's recommendations):**
 - **Rollout:** the user approves every rollout; never automatic.

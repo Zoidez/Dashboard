@@ -21,6 +21,7 @@ declare global {
       newCardStart(r: NewCardRequest): void;
       newCardStop(): void;
       newCardTestCli(): void;
+      newCardLassCancel(id: string): void;
     };
   }
 }
@@ -266,7 +267,7 @@ function App() {
           <section className="frame newcard-frame" data-card="new" style={{ gridColumn: "span 32", gridRow: "span 46" }}>
             <div className="bar"><span className="name">New</span><span className="state">{state.generator.gate?.ok ? `Claude Code ${state.generator.gate.version}` : ""}</span></div>
             <div className="body newcard-body">
-              <NewCard g={state.generator} start={(r) => host.newCardStart(r)} stop={() => host.newCardStop()} testCli={() => host.newCardTestCli()} />
+              <NewCard g={state.generator} start={(r) => host.newCardStart(r)} stop={() => host.newCardStop()} testCli={() => host.newCardTestCli()} lassCancel={(id) => host.newCardLassCancel(id)} />
             </div>
           </section>
           {frames.map((f) => (

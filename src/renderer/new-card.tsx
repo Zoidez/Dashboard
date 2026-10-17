@@ -21,7 +21,7 @@ function gateMessage(g: NonNullable<GeneratorView["gate"]>, build?: string): str
   }
 }
 
-export function NewCard({ g, start, stop, testCli }: { g: GeneratorView; start: (r: NewCardRequest) => void; stop: () => void; testCli: () => void }) {
+export function NewCard({ g, start, stop, testCli, lassCancel }: { g: GeneratorView; start: (r: NewCardRequest) => void; stop: () => void; testCli: () => void; lassCancel: (id: string) => void }) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState("new");
   const [preset, setPreset] = useState<"watch-feed" | null>(null);
@@ -59,6 +59,12 @@ export function NewCard({ g, start, stop, testCli }: { g: GeneratorView; start: 
           <option value="watch-feed">Watch feed</option>
         </select>
       </div>
+      {g.lass && target === "new" && (
+        <div className="lass-note" role="status">
+          <span>LASS is looking into the failed requests for new cards ({g.lass.state}). You can keep using the rest of the Dashboard, and change existing cards.{g.lass.summary ? ` ${g.lass.summary}` : ""}</span>
+          <button onClick={() => lassCancel(g.lass!.id)}>Cancel investigation</button>
+        </div>
+      )}
       <textarea
         ref={area}
         aria-label="Describe the card"
@@ -71,7 +77,7 @@ export function NewCard({ g, start, stop, testCli }: { g: GeneratorView; start: 
         onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); send(); } }}
       />
       <div className="row">
-        {!busy && <button className="primary" disabled={!text.trim()} onClick={send}>{target === "new" ? "Create" : `Update ${targetName}`}</button>}
+        {!busy && <button className="primary" disabled={!text.trim() || (!!g.lass && target === "new")} onClick={send}>{target === "new" ? "Create" : `Update ${targetName}`}</button>}
         {busy && <button className="danger" onClick={stop}>Stop</button>}
         <span className="progress" role="status">{g.message}{g.progress ? ` — ${g.progress}` : ""}</span>
       </div>

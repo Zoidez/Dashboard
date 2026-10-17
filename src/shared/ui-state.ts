@@ -42,6 +42,8 @@ export interface GeneratorView {
   testing: boolean;
   canTest: boolean;
   targets: Array<{ cardId: string; name: string }>;
+  /** An open LASS investigation of new-card requests (LASS.md 5): the New card refuses new cards until it ends. */
+  lass?: { id: string; state: string; summary?: string } | null;
 }
 
 export interface NewCardRequest { text: string; target: string; preset: "watch-feed" | null }

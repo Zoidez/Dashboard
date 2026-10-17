@@ -25,6 +25,8 @@ const MEMORY_LIMIT = 5000;
 
 export class AuditLog {
   private readonly recent: AuditEntry[] = [];
+  /** Called after every entry (the LASS activity log copies audit events; LASS.md 3). Never throws into the broker. */
+  onWrite: ((e: AuditEntry) => void) | null = null;
   constructor(private readonly dir: string) { mkdirSync(dir, { recursive: true }); }
 
   write(cardId: string, kind: AuditKind, detail: string): void {
@@ -36,6 +38,7 @@ export class AuditLog {
       if (/^[a-z0-9][a-z0-9-]{1,47}$/.test(cardId)) appendFileSync(join(this.dir, `${cardId}.jsonl`), line);
       if (SECURITY_KINDS.has(kind)) appendFileSync(join(this.dir, "_security.jsonl"), line);
     } catch { /* the in-memory copy still has it; disk errors must not crash the broker */ }
+    try { this.onWrite?.(e); } catch { /* a listener never breaks the audit log */ }
   }
 
   /** The security log (denials, blocks, refused or flagged cards): newest last. */

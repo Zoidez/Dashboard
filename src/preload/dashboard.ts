@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld("dashboardHost", {
   newCardStart(req: unknown): void { ipcRenderer.send("new:start", req); },
   newCardStop(): void { ipcRenderer.send("new:stop"); },
   newCardTestCli(): void { ipcRenderer.send("new:test-cli"); },
+  newCardLassCancel(id: unknown): void { ipcRenderer.send("new:lass-cancel", id); },
 });
