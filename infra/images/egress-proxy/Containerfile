@@ -1,0 +1,11 @@
+# Egress proxy (docs/INFRASTRUCTURE.md N2): the only container on both the internal network and the
+# outside one. Allows HTTPS (CONNECT) only to the hosts in its allowlist ConfigMap; logs every request
+# to standard output (L1).
+FROM docker.io/library/alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e
+
+RUN apk add --no-cache squid
+COPY squid.conf /etc/squid/squid.conf
+
+USER 10001
+EXPOSE 3128
+CMD ["squid", "-N", "-f", "/etc/squid/squid.conf"]

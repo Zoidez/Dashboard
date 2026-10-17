@@ -365,10 +365,28 @@ Results: `Build\data\podman\verify\20261017-055713\`.
 | No sudo | The user's sudo came from `%wheel ... NOPASSWD: ALL` in `/etc/sudoers`; the user was removed from `wheel`. After a restart the user cannot sudo and cannot mount `C:` ("must be superuser"); rootless gVisor and the root connection still work. `-Restore` adds the user to `wheel` again. |
 | Consequence | Under option A a runaway container is limited by nothing: it can use all 20 CPUs and up to 32 GB. See open item 6. |
 
+### Development / LASS container (built 2026-10-17)
+Files: `infra/images/lass-dev/Containerfile` (node 24 slim by digest, git, curl, Claude Code 2.1.296, user 10001), `infra/images/egress-proxy/` (alpine by digest, Squid), `infra/proxy/allowlist.yaml` (ConfigMap), `infra/k8s/lass-dev.yaml` and `lass-egress.yaml` (`{{IMAGE}}` filled in with the image tagged by git commit). `setup\lass-dev.ps1` builds, starts and checks them (a developer script; the Dashboard will use the backend, O1).
+
+| Check (`setup\lass-dev.ps1`) | Result |
+|---|---|
+| Dev container | gVisor, user 10001, read-only root, Claude Code 2.1.296 |
+| Allowed host through the proxy | reached (api.anthropic.com, HTTP 404 from the API root) |
+| Host not on the allowlist | refused by the proxy (403) |
+| Without the proxy | nothing reached (no DNS for outside names, no route) |
+| Windows drives, Podman socket | none inside |
+| Proxy log | every CONNECT on standard output, allowed and denied |
+
+What it took (all in `/usr/local/bin/runsc-rootless`, the machine user's default runtime):
+- `--overlay2=none`: gVisor otherwise keeps a container's writes in sandbox memory, so image builds produced empty layers.
+- `--network=host`: containers of one pod share the pod's network namespace; with a netstack per gVisor container, the pod's infra container and the app container answered for the same address and DNS replies went astray. Host here means the pod's own namespace (isolated by Podman), not the machine's.
+- `--no-new-keyring` is dropped: the image builder passes this crun-only flag, and the remote client offers no `--runtime` for builds. Builds therefore run under gVisor too.
+- Squid listens on `0.0.0.0:3128` (a socket on `[::]` takes no IPv4 connections inside gVisor).
+- **N1 exception (infrastructure, not services):** the internal network's DNS answers only for pods, so the proxy resolves outside names through the DNS of its second network `egress`, created with the fixed subnet 10.89.250.0/24 and named in `squid.conf` as `dns_nameservers 10.89.250.1`. Pods still reach each other by name (`lass-egress:3128`). On Kubernetes this becomes the cluster DNS.
 ## Open items (to verify on this PC before relying on them)
 1. ~~gVisor inside the Podman machine~~: answered above (rootless with ignore-cgroups).
 2. ~~Automatic mounting of Windows drives~~: answered above; re-check after every Podman update.
 3. ~~`podman kube play` support~~: answered above; Jobs work.
-4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? It may need specific endpoints allowlisted.
+4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? The proxy works (above); the sign-in needs the user once: `podman exec -it lass-dev-main claude`, then `setup\lass-dev.ps1 -AfterLogin`, which lists any refused endpoints.
 5. ~~Rootful gVisor with limits; the machine without passwordless `sudo`; limits for the whole WSL machine~~: answered below (2026-10-17).
 6. **Resource cap for rootless gVisor containers** (no cgroups, no machine limit): `.wslconfig` exception, rlimits, or accept. User decision.

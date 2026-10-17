@@ -98,7 +98,20 @@ runsc-rootless = ["/usr/local/bin/runsc-rootless"]
 EOF
 cat /home/user/.config/containers/containers.conf.d/50-dashboard-gvisor.conf
 '@
-$wrapper = 'printf "#!/bin/sh\nexec /usr/local/bin/runsc --ignore-cgroups \"\$@\"\n" > /usr/local/bin/runsc-rootless; chmod 755 /usr/local/bin/runsc-rootless; cat /usr/local/bin/runsc-rootless'
+$wrapper = @'
+cat > /usr/local/bin/runsc-rootless <<'EOF'
+#!/bin/sh
+# runsc for rootless Podman in the WSL machine (INFRASTRUCTURE.md, option A):
+# --ignore-cgroups    cgroups are not delegated to the user there;
+# --overlay2=none     writes go to the real filesystem, so image builds keep their layers;
+# --network=host      containers of one pod share the pod's network namespace (isolated by Podman);
+#                     with a netstack per container they would answer for the same address;
+# --no-new-keyring    the image builder's crun-only flag, dropped.
+for a; do shift; [ "$a" = "--no-new-keyring" ] || set -- "$@" "$a"; done
+exec /usr/local/bin/runsc --ignore-cgroups --overlay2=none --network=host "$@"
+EOF
+chmod 755 /usr/local/bin/runsc-rootless; tail -1 /usr/local/bin/runsc-rootless
+'@
 $w = InVmRoot $wrapper
 $s = InVm $setup
 Record "G1" "gVisor (with --ignore-cgroups) set as the machine user's default runtime" $(if ($w.code -eq 0 -and $s.code -eq 0) { "INFO" } else { "FAIL" }) "$($w.out)`n$($s.out)"

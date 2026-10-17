@@ -1,0 +1,47 @@
+# Development / LASS fix-run pod (docs/INFRASTRUCTURE.md; option A: rootless, gVisor, no route out).
+# Only on lass-internal; reaches the internet solely through the egress proxy. The Claude login lives
+# in the volume lass-claude-config, which no other pod mounts (S4). Source code is copied in, never
+# mounted from Windows (X3). {{IMAGE}} is filled in with the built image (tagged with its git commit).
+# Run: podman kube play --network lass-internal <this file>
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lass-claude-config
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lass-dev
+  labels: { app: lass-dev }
+spec:
+  containers:
+    - name: main
+      image: "{{IMAGE}}"
+      env:
+        - { name: HTTPS_PROXY, value: "http://lass-egress:3128" }
+        - { name: https_proxy, value: "http://lass-egress:3128" }
+        - { name: NO_PROXY, value: "localhost,127.0.0.1" }
+      # Declared for Kubernetes later (D4); rootless gVisor in Podman's WSL machine cannot enforce them
+      # (INFRASTRUCTURE.md, "Verified on this PC"). The WSL machine as a whole is capped by .wslconfig.
+      resources:
+        requests: { cpu: "500m", memory: "1Gi" }
+        limits: { cpu: "4", memory: "4Gi" }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+      volumeMounts:
+        - { name: claude-config, mountPath: /claude-config }
+        - { name: home, mountPath: /home/dev }
+        - { name: work, mountPath: /work }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - { name: claude-config, persistentVolumeClaim: { claimName: lass-claude-config } }
+    - { name: home, emptyDir: {} }
+    - { name: work, emptyDir: {} }
+    - { name: tmp, emptyDir: {} }

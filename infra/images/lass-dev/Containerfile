@@ -1,0 +1,27 @@
+# Development / LASS fix-run container (docs/INFRASTRUCTURE.md I1-I3, X1-X3; option A, 2026-10-17).
+# Claude Code with development tools, sealed off from Windows: runs rootless under gVisor on the
+# internal network lass-internal; its only way out is the egress proxy (HTTPS_PROXY, set in the YAML).
+# No secrets in this image (I2): the Claude login lives in the volume lass-claude-config.
+FROM docker.io/library/node@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+
+# The CLI version the spike approved on Windows (CLI 2.1.296, 2026-10-10). Inside this container the
+# boundary is the container itself, not the CLI's lockdown.
+ARG CLAUDE_CODE_VERSION=2.1.296
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && npm cache clean --force \
+ && useradd -u 10001 -m -d /home/dev -s /bin/bash dev
+
+# Read-only root filesystem (I3): HOME, /tmp and /work are volumes from the YAML; the Claude config
+# (login included) is CLAUDE_CONFIG_DIR on its own persistent volume.
+ENV HOME=/home/dev \
+    CLAUDE_CONFIG_DIR=/claude-config \
+    DISABLE_AUTOUPDATER=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+USER 10001
+WORKDIR /work
+CMD ["sleep", "infinity"]
