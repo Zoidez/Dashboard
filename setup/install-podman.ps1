@@ -122,6 +122,16 @@ function podman {
 "@
 foreach ($d in "home\AppData\Roaming", "home\AppData\Local") { New-Item -ItemType Directory -Force -Path (Join-Path $podmanDir $d) | Out-Null }
 [IO.File]::WriteAllText((Join-Path $podmanDir "env.ps1"), $envPs1)
+# The same as a batch file: Windows PowerShell's default execution policy blocks dot-sourcing env.ps1,
+# batch files are not affected. Usage: Build\data\podman\podman.cmd <podman arguments>
+$h = Join-Path $podmanDir "home"
+$cmd = @(
+  "@echo off", "rem Runs Podman with its home, config and data under Build\data\podman. Written by setup\install-podman.ps1.", "setlocal",
+  "set `"USERPROFILE=$h`"", "set `"HOME=$h`"", "set `"APPDATA=$h\AppData\Roaming`"", "set `"LOCALAPPDATA=$h\AppData\Local`"",
+  "set `"XDG_CONFIG_HOME=$podmanDir\config`"", "set `"XDG_DATA_HOME=$podmanDir\data`"", "set `"CONTAINERS_CONF=$conf`"", "set `"CONTAINERS_MACHINE_PROVIDER=wsl`"",
+  "`"$target\podman.exe`" %*"
+) -join "`r`n"
+[IO.File]::WriteAllText((Join-Path $podmanDir "podman.cmd"), $cmd + "`r`n")
 
 Remove-Item -LiteralPath $dlDir -Recurse -Force -ErrorAction SilentlyContinue
 & (Join-Path $target "podman.exe") --version

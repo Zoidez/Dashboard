@@ -388,6 +388,6 @@ What it took (all in `/usr/local/bin/runsc-rootless`, the machine user's default
 1. ~~gVisor inside the Podman machine~~: answered above (rootless with ignore-cgroups).
 2. ~~Automatic mounting of Windows drives~~: answered above; re-check after every Podman update.
 3. ~~`podman kube play` support~~: answered above; Jobs work.
-4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? The proxy works (above); the sign-in needs the user once: `podman exec -it lass-dev-main claude`, then `setup\lass-dev.ps1 -AfterLogin`, which lists any refused endpoints.
+4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? The proxy works (above); the sign-in needs the user once: `Build\data\podman\podman.cmd exec -it lass-dev-main claude` (a batch file, because the default execution policy blocks dot-sourcing `env.ps1`), then `setup\lass-dev.ps1 -AfterLogin`, which lists any refused endpoints.
 5. ~~Rootful gVisor with limits; the machine without passwordless `sudo`; limits for the whole WSL machine~~: answered below (2026-10-17).
 6. ~~Resource cap for rootless gVisor containers~~: `.wslconfig` (user decision 2026-10-17), verified.

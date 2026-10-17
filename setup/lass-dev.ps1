@@ -13,7 +13,7 @@
      the dev container runs under gVisor as user 10001 with a read-only root; Claude Code is installed;
      an allowed host is reached through the proxy, a host not on the list is refused, and nothing is
      reached without the proxy; no Windows drive and no Podman socket inside; the proxy logs requests.
-  -AfterLogin: after the user signed in once (podman exec -it lass-dev-main claude), runs one prompt
+  -AfterLogin: after the user signed in once (Build\data\podman\podman.cmd exec -it lass-dev-main claude), runs one prompt
   through the proxy and lists what the proxy refused (open item 4).
   -Down removes both pods (the login volume stays).
 #>
@@ -119,4 +119,4 @@ Record "D7" "The proxy logs requests (allowed and denied)" $(if ($plog.out -matc
 
 Write-Host "`nLog: $logFile"
 Write-Host "Next (the user, once): sign in inside the container, then run this script with -AfterLogin:"
-Write-Host "  . `"$podmanDir\env.ps1`"; podman exec -it lass-dev-main claude"
+Write-Host "  & `"$podmanDir\podman.cmd`" exec -it lass-dev-main claude"
