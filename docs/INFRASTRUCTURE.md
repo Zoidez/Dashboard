@@ -364,6 +364,7 @@ Results: `Build\data\podman\verify\20261017-055713\`.
 | Option A set up on this machine | gVisor is the machine user's default runtime (`/usr/local/bin/runsc-rootless` = `runsc --ignore-cgroups`, set in `~/.config/containers/containers.conf.d/50-dashboard-gvisor.conf`); a hardened Pod from `podman kube play` runs under gVisor rootless (`4.19.0-gvisor`). |
 | No sudo | The user's sudo came from `%wheel ... NOPASSWD: ALL` in `/etc/sudoers`; the user was removed from `wheel`. After a restart the user cannot sudo and cannot mount `C:` ("must be superuser"); rootless gVisor and the root connection still work. `-Restore` adds the user to `wheel` again. |
 | Consequence | Under option A a runaway container is limited by nothing: it can use all 20 CPUs and up to 32 GB. See open item 6. |
+| Machine cap (user decision, option 1) | `%USERPROFILE%\.wslconfig`: `memory=12GB`, `processors=8`, `swap=4GB`, written by the user. After `wsl --shutdown` the machine shows 8 CPUs, 11 963 MB and 4 096 MB swap (2026-10-17). Drives, interop, sudo and the gVisor wrapper survived the WSL restart. |
 
 ### Development / LASS container (built 2026-10-17)
 Files: `infra/images/lass-dev/Containerfile` (node 24 slim by digest, git, curl, Claude Code 2.1.296, user 10001), `infra/images/egress-proxy/` (alpine by digest, Squid), `infra/proxy/allowlist.yaml` (ConfigMap), `infra/k8s/lass-dev.yaml` and `lass-egress.yaml` (`{{IMAGE}}` filled in with the image tagged by git commit). `setup\lass-dev.ps1` builds, starts and checks them (a developer script; the Dashboard will use the backend, O1).
@@ -389,4 +390,4 @@ What it took (all in `/usr/local/bin/runsc-rootless`, the machine user's default
 3. ~~`podman kube play` support~~: answered above; Jobs work.
 4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? The proxy works (above); the sign-in needs the user once: `podman exec -it lass-dev-main claude`, then `setup\lass-dev.ps1 -AfterLogin`, which lists any refused endpoints.
 5. ~~Rootful gVisor with limits; the machine without passwordless `sudo`; limits for the whole WSL machine~~: answered below (2026-10-17).
-6. **Resource cap for rootless gVisor containers** (no cgroups, no machine limit): `.wslconfig` exception, rlimits, or accept. User decision.
+6. ~~Resource cap for rootless gVisor containers~~: `.wslconfig` (user decision 2026-10-17), verified.
