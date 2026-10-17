@@ -167,6 +167,8 @@ interface ContainerBackend {
 
 *Why:* this backend is the only code that has to be written twice.
 
+**Built (2026-10-17):** `src/main/containers/` — `backend.ts` (interface; `copyIn` takes the target folder), `render.ts` (JobSpec → Kubernetes JSON documents; hardening fixed in code; only emptyDir and the listed persistent volumes; network profiles `none`, `internal`, `egress`), `tar.ts` (minimal tar; reading keeps regular files with safe names only), `podman.ts` (podman.exe with its home under `Build\data\podman`, environment built from scratch; jobs are Pods from `podman kube play`, manifests in `Build\data\podman\jobs\`; `stop` = `kube down` without `--force`, so scratch volumes go and persistent ones stay). Files move with `podman exec … tar`, because `podman cp` works from the host side and cannot see into a gVisor sandbox; job images must contain tar. Tests: `test\unit\containers.test.ts` (no Podman) and `npm run test:podman` (the real machine: gVisor, user 10001, read-only root, no network, files in and out, nothing left after stop, login volume kept, links refused). Not yet used by the Dashboard (not imported by `src/main/index.ts`), so the host build and its security record are unchanged.
+
 **O2. Identity and permissions belong to the application, not to Podman or Kubernetes.**
 - Users, admin and system accounts, and their roles live in the application (later an identity provider plus roles in the service's code).
 - Kubernetes' own access control (RBAC) is only for the people and processes that operate the cluster.

@@ -199,6 +199,7 @@ All three tasks stay in the cloud. Each writes its report to `Build\ClaudeExchan
 | 2026-10-17 | **Option A for the development / LASS container: rootless + gVisor + no passwordless sudo in the machine**; no per-container limits there. Rules X2 and X1 hold; D4 (limits) is waived for that container | User decision (Claude's recommendation). Isolation matters most for fix runs on untrusted input, one at a time. Card workers decided separately. |
 | 2026-10-17 | Machine-wide resource cap through `%USERPROFILE%\.wslconfig` (exception to the portable-instance rule; the user writes it) | User decision (option 1): WSL ignores Podman's `--cpus/--memory`; rootless gVisor containers have no limits. |
 | 2026-10-17 | Development / LASS container and egress proxy built and verified (INFRASTRUCTURE.md); gVisor wrapper flags `--overlay2=none --network=host`; the proxy resolves outside names through the DNS of network `egress` (fixed subnet, an N1 exception for infrastructure) | Found while building; each is explained in INFRASTRUCTURE.md. |
+| 2026-10-17 | Container backend (O1) built and tested against the real machine; not wired into the Dashboard until something uses it (LASS) | Keeps the host build, and its security-suite record, unchanged until the backend has a user. |
 
 ## Spike 1 results (CLI 2.1.293, Option A, 2026-10-08)
 - Binary: release key fingerprint, signed manifest, SHA-256, Authenticode all verified. (gpg import exits 2 on "can't connect to the agent"; harmless.)
