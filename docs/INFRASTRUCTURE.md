@@ -341,16 +341,24 @@ src/main/containers/                backend interface and Podman backend (O1)
 
 If the rules above were followed, steps 1–6 are configuration, not redesign. Step 4 is the only code.
 
-## Open items (to verify on this PC before relying on them)
+## Verified on this PC (2026-10-17, `setup\verify-podman.ps1`, Podman 6.1.4, machine Fedora 44, WSL kernel 6.18)
+Results: `Build\data\podman\verify\20261017-055713\`.
 
-1. Can gVisor (`runsc`) be installed and used inside the Podman machine on Windows 11 Home?
-2. How is the Podman machine's automatic mounting of Windows drives switched off, and does it stay off after Podman updates?
-3. Which Kubernetes object kinds and probe fields does the installed Podman version support in `podman kube play`, Jobs in particular? Record the answer under rule D2.
+| Open item | Answer |
+|---|---|
+| Storage under `Build\` | **Yes, with a redirected home.** Podman 6 on Windows keeps the machine's config under `USERPROFILE`/`APPDATA` whatever `XDG_CONFIG_HOME` says. Pointing those (and `HOME`, `LOCALAPPDATA`) at `Build\data\podman\home` for each podman call puts everything under `Build\`: machine config, connections, disk (`ext4.vhdx`), image cache. The WSL distribution's `BasePath` is under `Build\`; only WSL's own registry entry (`HKCU\...\Lxss`) is outside. **The container backend (O1) must start podman with this environment.** |
+| 2. Windows drives off | **Automount off works and survives a restart** (`/etc/wsl.conf` `[automount] enabled=false`); Windows interop off works (`[interop] enabled=false`). Persistence across Podman updates: re-run the script after each update. |
+| 2a. Is the machine a wall? | **No.** Root inside the machine can still mount `C:` by hand (`mount -t drvfs C:`), with the Windows user's rights, and the machine's user has `sudo` without a password. So anything that reaches the machine's user or root can reach the user's files. Rule X3 cannot rest on the machine; it rests on the container boundary (gVisor, rootless, no sudo). |
+| 1. gVisor | **Works rootless only with `--runtime-flag ignore-cgroups`** (kernel `4.19.0-gvisor` seen inside). Without it, runsc cannot set up cgroups. gVisor ships as `gvisor.tar.zstd` + `.sha512` now (runsc alone is gone). Rootful gVisor not tested yet. |
+| Limits (D4) | **Rootless containers get no CPU or memory limits** in Podman's WSL machine (cgroup controllers are not delegated to the user: `memory.max` missing). Rootful containers get them (64Mi and the CPU limit honoured). |
+| 3. `podman kube play` | Pod (rootful: limits, `readOnlyRootFilesystem`, capabilities drop ALL, `allowPrivilegeEscalation: false` → `no-new-privileges`, `runAsUser`, probes → health check, root filesystem really read-only), ConfigMap and Secret as files (secret not in the environment), PersistentVolumeClaim → named volume, Deployment, **Job** (runs to completion): all supported. |
+| Network | An `--internal` network has no route out (N2/W2 basis). |
+
+**Decision needed (X2 vs D4):** in this machine a container can be rootless *or* have limits, not both, and gVisor rootless also gives up limits. Not yet tested: rootful gVisor with limits; removing the machine user's passwordless `sudo`; whether `podman machine init --cpus/--memory` limits the WSL machine at all (WSL normally takes its limits from the user's global `.wslconfig`).
+
+## Open items (to verify on this PC before relying on them)
+1. ~~gVisor inside the Podman machine~~: answered above (rootless with ignore-cgroups).
+2. ~~Automatic mounting of Windows drives~~: answered above; re-check after every Podman update.
+3. ~~`podman kube play` support~~: answered above; Jobs work.
 4. Does the egress proxy approach work for the Claude Code CLI's sign-in and API traffic? It may need specific endpoints allowlisted.
-5. Per-container CPU and memory limits in **rootless** Podman inside the Podman machine: they need cgroup v2 with delegation in the WSL2 kernel. If they don't apply, the fallback is a rootful Podman machine (containers rootful inside the VM; the VM stays the wall to Windows), at the cost of weaker isolation between containers.
-6. Behaviour across Windows sleep and hibernate:
-   - Does the Podman machine survive?
-   - Does the WSL2 clock drift? Mutual TLS and short-lived grants fail on a skewed clock, so the clock may need resyncing on wake.
-   - Does `localhost` forwarding from Windows to the bus keep working, or is WSL's mirrored networking mode needed?
-7. The WSL2 VM's memory cap (`.wslconfig`) is shared by all WSL distributions on the PC. Pick a cap that leaves room for Windows.
-8. Pin the Podman version. Podman machine upgrades have broken setups before, so upgrades happen only on purpose, followed by the verification script.
+5. Rootful gVisor with limits; the machine without passwordless `sudo`; limits for the whole WSL machine.
