@@ -1,8 +1,9 @@
 # Egress allowlist (docs/INFRASTRUCTURE.md N2): the hosts containers may reach through the egress
 # proxy, one per line (Squid dstdomain syntax; a leading dot also allows subdomains).
 # LASS / development container: the Claude API and sign-in, the npm registry, GitHub.
-# Claude Code's sign-in endpoints are not documented as a fixed list; denied requests show up in the
-# proxy's log (podman logs lass-egress-proxy) and are added here only after review (open item 4).
+# Claude Code 2.1.296 signed in and worked with api.anthropic.com and platform.claude.com only (proxy log,
+# 2026-10-17). Refused on purpose: mcp-proxy.anthropic.com (claude.ai connectors) and downloads.claude.ai
+# (updates). Denied requests show up in the proxy's log; add hosts only after review.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,8 +11,6 @@ metadata:
 data:
   domains: |
     api.anthropic.com
-    claude.ai
-    console.anthropic.com
     platform.claude.com
     registry.npmjs.org
     github.com

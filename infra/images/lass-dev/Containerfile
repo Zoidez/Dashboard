@@ -16,10 +16,13 @@ RUN apt-get update \
  && useradd -u 10001 -m -d /home/dev -s /bin/bash dev
 
 # Read-only root filesystem (I3): HOME, /tmp and /work are volumes from the YAML; the Claude config
-# (login included) is CLAUDE_CONFIG_DIR on its own persistent volume.
+# (login included) is CLAUDE_CONFIG_DIR on its own persistent volume. No claude.ai connectors: they would bring
+# the user's mail and files into an agent that reads untrusted input (the proxy refuses mcp-proxy.anthropic.com too).
 ENV HOME=/home/dev \
     CLAUDE_CONFIG_DIR=/claude-config \
     DISABLE_AUTOUPDATER=1 \
+    DISABLE_UPDATES=1 \
+    ENABLE_CLAUDEAI_MCP_SERVERS=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 USER 10001
