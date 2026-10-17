@@ -1,7 +1,7 @@
 /** The request header names the watched feeds, so a request can refer to a task by name (2026-10-13). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { userMessage } from "../../src/main/generator/prompt.ts";
+import { userMessage } from "../../src/main/generator/prompt.js";
 
 test("header lists watched feeds with id and name", () => {
   const m = userMessage({ cardId: "x-1a2b", kind: "new", preset: "watch-feed", feeds: [{ taskId: "trig_01Y1GXmdmH2nc1r4KhLi9Fpn", name: "Daily celestial events watch" }] }, "Show the celestial watch as a list");

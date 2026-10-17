@@ -61,15 +61,19 @@ test("F: grid places views, saves layout, Stop/Start/Revoke, Options, close to t
     // Resize card B with the handle, then check layout.json.
     const handle = page.locator('section[data-card="card-b"] .resize');
     const hb = (await handle.boundingBox())!;
-    const wBefore = Number(/grid-column: span (\d+)/.exec((await page.locator('section[data-card="card-b"]').getAttribute("style")) ?? "")?.[1]);
+    // Read the width from the element's own style (the attribute may be serialized as the grid-area shorthand).
+    const wBefore = Number(/span (\d+)/.exec(await page.locator('section[data-card="card-b"]').evaluate((el) => (el as HTMLElement).style.gridColumn))?.[1]);
+    const hBefore = Number(/span (\d+)/.exec(await page.locator('section[data-card="card-b"]').evaluate((el) => (el as HTMLElement).style.gridRow))?.[1]);
     await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
     await page.mouse.down();
     await page.mouse.move(hb.x + 260, hb.y + 100, { steps: 8 });
     await page.mouse.up();
-    const saved = await waitFor(() => { try { return JSON.parse(readFileSync(join(inst, "data", "layout.json"), "utf8")); } catch { return null; } }, "layout.json");
+    // layout.json may already exist from earlier steps: wait for the save that carries the new size.
+    // Card B sits at the grid's right edge (the New card takes the first 32 columns), so it can only grow taller.
+    const saved = await waitFor(() => { try { const j = JSON.parse(readFileSync(join(inst, "data", "layout.json"), "utf8")); return j?.sizes?.["card-b"]?.h > hBefore ? j : null; } catch { return null; } }, "layout.json with card B's new size");
     console.log("layout:", JSON.stringify(saved));
     expect(saved.unit).toBe("fine-96x10");
-    expect(saved.sizes["card-b"].w).toBeGreaterThan(wBefore);
+    expect(saved.sizes["card-b"].w).toBeGreaterThanOrEqual(wBefore);
     expect(saved.order).toEqual(["card-a", "card-b"]);
 
     // Stop and Start from the grid buttons.

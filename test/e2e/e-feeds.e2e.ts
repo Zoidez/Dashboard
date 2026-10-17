@@ -46,9 +46,13 @@ test("E1-E3: watch-feed cards install, show reports, render hostile Markdown ine
   const port = (server.address() as { port: number }).port;
 
   const inst = makeInstance();
-  putReport(inst, KESSLER, "20261009T061000Z.json", JSON.stringify({
+  // A report from an hour ago, so the daily feed is not overdue whenever the test runs.
+  const finished = new Date(Date.now() - 3600_000);
+  const stampOf = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const stamp = stampOf(finished);
+  putReport(inst, KESSLER, `${stamp}.json`, JSON.stringify({
     schemaVersion: 0, taskId: KESSLER, taskName: "Daily Kessler Syndrome watch",
-    runStartedAt: "2026-10-09T06:00:00Z", runFinishedAt: "2026-10-09T06:10:00Z", status: "ok", severity: "high",
+    runStartedAt: new Date(finished.getTime() - 600_000).toISOString(), runFinishedAt: finished.toISOString(), status: "ok", severity: "high",
     bottomLine: "A fragmentation event raised collision risk in LEO.",
     body: [
       "## Items", "", "- **High:** breakup of a rocket body", "",
@@ -103,7 +107,7 @@ test("E1-E3: watch-feed cards install, show reports, render hostile Markdown ine
     expect(gamedev.text).toContain("No report has arrived yet");
 
     // E2: a newer invalid file -> "Feed offline", the last good report stays.
-    putReport(inst, KESSLER, "20261010T061000Z.json", JSON.stringify({ schemaVersion: 0, taskId: KESSLER, status: "ok" }));
+    putReport(inst, KESSLER, `${stampOf(new Date())}.json`, JSON.stringify({ schemaVersion: 0, taskId: KESSLER, status: "ok" }));
     const off = await waitFor(async () => { const d = await cardDom(app, "feed-daily-kessler-syndrome-watch"); return d?.offline ? d : null; }, "the offline banner", 20_000);
     console.log("offline banner:", off.offline);
     expect(off.offline).toContain("Feed offline");
