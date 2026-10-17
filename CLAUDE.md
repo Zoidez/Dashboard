@@ -41,7 +41,7 @@ Built 2026-10-09 (see `docs\PROJECT.md`, Status): runtime, broker, file access, 
 - **New docs:** `NEW-FEED-CARD.md` (procedure), `LASS.md` (proposal, not approved), `INFRASTRUCTURE.md` (Podman decided; container card workers planned; rule changes required first; see the reminder under Hard constraints).
 - **Podman:** `setup\install-podman.ps1` installs the client portably (`Build\data\vendor\podman\<version>\`; config and data in `Build\data\podman\` via `env.ps1`). Written, not yet run. The user installs WSL first (`wsl.exe --install --no-distribution`, admin, reboot).
 - **Celestial watch task:** its prompt has the report step since 2026-10-16 (list format for the card: `sources` titles `section | headline | source | date`). The user still has to turn on "Require this computer" and connect its folder before reports arrive.
-- **Themes (2026-10-16):** colour and font rework comes first; the Podman migration is paused until it is done. Research in `docs\THEMES.md` (`scripts\palette-research.mjs`); the user chooses the themes and fonts next.
+- **Themes (2026-10-16):** colour and font rework comes first; the Podman migration is paused until it is done. All six themes in `docs\THEMES.md` approved by the user 2026-10-16 (values and checks: `scripts\theme-check.mjs`; run it, it must exit 0). Build list: `docs\PROJECT.md` checklist, "Theme rework". Generator rule 10 waits in RULES.md "Pending generator rules" and moves into the sent section only when the host code it relies on is built.
 - **Next, in order:** themes; package + host suite; user confirms the grid fixes; celestial card once its first report has arrived; then the Podman verification script (`INFRASTRUCTURE.md`, open items).
 
 ## Git and GitHub (2026-10-16)

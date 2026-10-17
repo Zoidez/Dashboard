@@ -1,11 +1,35 @@
 # Dashboard — Themes (colours and fonts)
 
-**Status: research done 2026-10-16; themes not chosen, nothing built.** The Podman migration waits until this is finished (user decision 2026-10-16).
+**Status: theme set approved by the user 2026-10-16 (all six themes, checked by `scripts/theme-check.mjs`); nothing built.** The Podman migration waits until this is finished (user decision 2026-10-16).
 
 ## Scope (user decisions 2026-10-16)
-- **In:** colour themes and font settings for the app's screens and for cards.
-- **Out:** layout density (borders, title bars, spacing). Clutter is acceptable as it is; the rework must not add to it.
-- A theme sets **colours, typeface, base size and line spacing**. Nothing per element.
+- **In:** colour themes and font settings for the app's screens and for cards, and how each theme shows severity (below).
+- **Out:** fixing the existing clutter (borders, title bars, spacing). Clutter is acceptable as it is. **The goal is to prevent more of it:** see "No new clutter".
+- A theme sets **colours, typeface, base size, line spacing and its severity display methods**. Nothing per element.
+
+## Severity display (user decision 2026-10-16)
+Each theme picks how the card frame shows a card's severity (`api.ui.setAccent`), from five methods:
+
+| Method | What changes | Readability rule |
+|---|---|---|
+| `border` | the card's outline takes the level's colour; width 1, 1, 2, 3 px for low to critical (as today) | colour ≥ 3:1 against the card and the page |
+| `header` | the card's title bar is filled with the level's colour; its text switches to whichever of the theme's text colours reads best on it | text on the fill ≥ 4.5:1; fill ≥ 3:1 against the page |
+| `background` | the card's own background is tinted with the level's colour, more strongly for higher levels (light 8/12/16/22 %, dark 12/18/24/30 %) | every text colour ≥ 4.5:1 on every tint; adjacent tints differ in lightness |
+| `headerText` | the card's name in the title bar is written in the level's colour | colour ≥ 4.5:1 against the card |
+| `bookmark` | a small bookmark icon in the level's colour appears at the left of the title bar | colour ≥ 3:1 against the card and the page |
+
+- A theme picks **one or two** methods (limit approved by the user 2026-10-16), and may pick them separately for its light and dark versions.
+- The host draws every method from the frame it already owns (outline, title bar, the card view's background colour). Cards don't draw severity themselves. The reference feed card's own severity background goes away; installed feed cards need reinstalling (approval is bound to files).
+- Level `none` (and `neutral`) shows nothing.
+- **Severity colours also differ in brightness** (user decision 2026-10-16): each level stands out more from the card than the level below it. In light versions the colours get darker as severity rises; in dark versions they get lighter. Adjacent levels differ in OKLab lightness by at least 0.06 and stay apart (distance ≥ 0.05) under simulated protanopia, deuteranopia and tritanopia. Error and warning colours differ in lightness by at least 0.10 and stay apart (≥ 0.10) under the same simulations.
+- **Consequence (accepted by the user 2026-10-16):** in dark versions, critical is the lightest colour, so it reads as salmon or light coral rather than pure red. Pure red at that position would stand out less than the yellow medium level. In light versions, high and critical become deep red-browns.
+- **Found by the check:** `headerText` cannot meet its rules in light versions without muddy, very dark colours (all levels must be ≥ 4.5:1 and still step darker), nor on Nord's comparatively light dark surface (no room for four steps). It is used only where it fits: Primer dark.
+
+## No new clutter (user decision 2026-10-16: prevent more, don't fix what exists)
+1. A theme shows severity with at most two methods (above).
+2. The rework adds no new elements to the card frame, the grid or the top bar beyond the bookmark icon when a theme picks that method.
+3. Generated cards draw no frame, title bar, status line or severity colouring of their own: the host frame shows name, status (`api.ui.setStatus`) and severity (`api.ui.setAccent`). Generator rule 10 in RULES.md.
+4. Generated cards use only theme colours and relative font sizes, so a theme change never leaves one card looking different from the rest (rule 6 below).
 
 ## What the code has today
 - **App screens** take their colours from 17 named colours in `src/renderer/dashboard.css`, with one light and one dark set chosen by Windows (`prefers-color-scheme`). Hard-coded: the white toggle knob and a black menu shadow.
@@ -48,21 +72,46 @@ Severity card backgrounds are derived the same way for every palette: the level'
 (Distance below about 0.05 means the two colours look nearly the same.)
 
 ### Finding: red and yellow collapse for deuteranopia in the current light theme
-The current light theme's error red (`#b3261e`) and warning yellow-brown (`#8a5300`) have the same lightness (OKLab L 0.50 vs 0.49). With deuteranopia (about 1 man in 12 has some red-green colour blindness, most of them of this type) both look olive (`#756916` vs `#726502`). The approval screen does not rely on colour alone (every marked line carries its tag and a sentence, and the banners say "Red markings" / "Worth a look"), so this is not a hole, but the colour signal itself is lost. GitHub Primer has the same flaw. **Fix:** red and warning must differ in lightness, not only in hue. Proposed rule for every theme: OKLab lightness of warning and error differ by at least 0.10, and their distance under each simulated colour blindness is at least 0.10.
+The current light theme's error red (`#b3261e`) and warning yellow-brown (`#8a5300`) have the same lightness (OKLab L 0.50 vs 0.49). With deuteranopia (about 1 man in 12 has some red-green colour blindness, most of them of this type) both look olive (`#756916` vs `#726502`). The approval screen does not rely on colour alone (every marked line carries its tag and a sentence, and the banners say "Red markings" / "Worth a look"), so this is not a hole, but the colour signal itself is lost. GitHub Primer has the same flaw. **Fix:** red and warning must differ in lightness, not only in hue. Rule for every theme (approved 2026-10-16): OKLab lightness of warning and error differ by at least 0.10, and their distance under each simulated colour blindness is at least 0.10.
 
 ### Severity levels
-Adjacent severity levels are close under deuteranopia in most palettes (0.01–0.09). The feed card shows the level as a word, so this stays acceptable; the frame accent on the grid has no word. Proposed rule: severity colours get lighter or darker step by step (monotonic lightness), so they stay in order without colour vision.
+Adjacent severity levels are close under deuteranopia in most palettes (0.01–0.09). The feed card shows the level as a word, so this stays acceptable; the frame accent on the grid has no word. Rule (approved 2026-10-16): severity colours differ in brightness step by step, so they stay in order without colour vision. See "Severity display".
 
-## Proposed theme set
-Each theme has a light and a dark version; "Follow Windows" stays the default.
-1. **Dashboard** (current), with the red/yellow lightness fix.
-2. **GitHub Primer**, with the same fix.
-3. **Catppuccin** (Latte, corrected / Mocha as published).
-4. **Gruvbox** (light, corrected / dark, one tiny correction).
-5. **Carbon** (g10 with a darker yellow and green / g100 as published).
-6. **Nord** dark only (error red corrected), if a dark-only theme is acceptable.
+## Sources (all verified against upstream files 2026-10-16)
+- **GitHub Primer** and **IBM Carbon**: their published packages.
+- **Catppuccin**: `@catppuccin/palette` 1.8.0 `palette.json` (MIT).
+- **Gruvbox**: `morhetz/gruvbox`, `colors/gruvbox.vim` (MIT/X11).
+- **Nord**: `nordtheme/nord`, `src/nord.css` (MIT; the old npm package `nord` 0.2.1 was Apache 2.0 / CC-BY-SA 4.0, but the current repository is MIT).
 
-Values for Primer and Carbon were checked against their published packages (2026-10-16). Values for Nord, Solarized, Catppuccin and Gruvbox are from their published palettes as remembered: **verify against the upstream files before shipping.**
+Every value used matched the remembered one.
+
+## Theme set (checked and approved by the user 2026-10-16: all six)
+`node scripts/theme-check.mjs` starts from each palette's published colours, applies the corrections below, and checks every rule in "Rules for the build". It exits with an error if any rule fails. `--json <file>` writes the final values, and `--html <file>` writes a preview page built from those same values. **All six themes pass.** "Follow Windows" stays the default choice of light or dark.
+
+**How published colours are corrected** (lightness only; hue and chroma are kept unless the colour would leave the sRGB range):
+1. Text colours are made darker in light versions, or lighter in dark versions, until they reach 4.5:1 on both the page and the card. With the `background` method this also applies to every severity tint.
+2. If error and warning are closer than 0.10 in lightness, they are pushed apart.
+3. Severity colours are placed on an even lightness ladder. It starts from the faintest level the method allows. The step is about 0.08 (light) or 0.09 (dark), and it grows only if a colour-blind simulation pulls two levels together. In dark versions the ladder stops at lightness 0.86, beyond which red turns into near-white pink.
+
+| Theme | Version | Severity method | Warning / error | Severity low · medium · high · critical | Font |
+|---|---|---|---|---|---|
+| **Dashboard** (current colours) | light | border | `#996119` / `#980003` | `#788da2` · `#996801` · `#a22d02` · `#880203` | Segoe UI 13/1.4 |
+| | dark | border | `#e3a948` / `#d2706a` | `#5e7185` · `#af8103` · `#f57e56` · `#ffa69c` | |
+| **Primer** | light | bookmark | `#9b6802` / `#9f0118` | `#87919d` · `#a06c0e` · `#9f3f01` · `#900115` | Segoe UI Variable 13/1.45 |
+| | dark | headerText + bookmark | `#d89f2b` / `#ec453f` | `#848b93` · `#ce961c` · `#ff9c67` · `#febfb7` | |
+| **Carbon** | light | header | `#896c01` / `#990112` | `#4c87fe` · `#8f7204` · `#954503` · `#8c0210` | IBM Plex Sans 13/1.45 |
+| | dark | header | `#f1c21b` / `#f3787f` | `#2d70e4` · `#b38f08` · `#ff8f48` · `#febcb8` | |
+| **Catppuccin** | light (Latte) | background | `#965c04` / `#900022` | `#687bf0` · `#9d6102` · `#963701` · `#83001f` | Inter 13/1.45 |
+| | dark (Mocha) | background | `#f9e2af` / `#f38ba8` | `#6269a3` · `#9c8757` · `#d79367` · `#ffa1ba` | |
+| **Gruvbox** | light | border + bookmark | `#905b02` / `#8c0005` | `#568f6b` · `#915c00` · `#8f2d00` · `#780104` | Source Sans 3 14/1.4 |
+| | dark | border + bookmark | `#fabd2f` / `#ff4f3a` | `#588746` · `#bc8a06` · `#ff8d3f` · `#ffb8ab` | |
+| **Nord** | dark only | border | `#f0cf8f` / `#f59199` | `#7595b4` · `#c0a163` · `#f1a68e` · `#ffbdc1` | Inter 13/1.5 |
+
+The other colours (page, card, text, muted, border, accent, ok) are the published ones except where correction 1 changed them. The script lists every change.
+
+**Weakest signal:** the `background` method. Tints of neighbouring levels differ only slightly in lightness (≥ 0.015), and in Catppuccin dark the tints are faint. The feed card's severity word remains the reliable signal there.
+
+**The fonts are proposals.** Inter, IBM Plex Sans and Source Sans 3 would ship with the app (SIL OFL). Until they ship, they fall back to Segoe UI.
 
 ## Fonts
 
@@ -92,10 +141,10 @@ Values for Primer and Carbon were checked against their published packages (2026
 - Base size 12–15 px, line spacing 1.3–1.6. A larger size makes text overflow cards that do not grow with it; the narrow range keeps that in check.
 - The approval screen's text never goes below a minimum size in any theme.
 
-## Rules for the build (proposed; become RULES.md and tests when approved)
+## Rules for the build (rules 2, 3 and 4 approved by the user 2026-10-16, in RULES.md as host invariant 14; rule 6 is the pending generator rule 10 in RULES.md; the others proposed)
 1. **One theme definition** for the app screens and the card pages (ends the second palette in `card-host.ts`).
-2. **Theme values are data, checked strictly:** colours only as `#rrggbb`; the font only from the list above; size and line spacing only as numbers in range. Anything else is rejected, so a theme file cannot inject CSS into cards.
-3. **Automated contrast test** (unit test, every theme, light and dark): all text pairs ≥ 4.5:1, frame accents ≥ 3:1, the red/yellow lightness rule, the distinctness checks above, monotonic severity lightness.
-4. **The approval screen's red and yellow** must pass rule 3 in every theme (security UI).
+2. **Theme values are data, checked strictly** (approved): colours only as `#rrggbb`; the font only from the list above; size and line spacing only as numbers in range; severity methods only from the five names, one or two per version. Anything else is rejected, so a theme file cannot inject CSS into cards.
+3. **Automated contrast test** (unit test, every theme, light and dark; the brightness parts approved): all text pairs ≥ 4.5:1, the readability rule of each severity method the theme picks, error and warning ≥ 0.10 apart in lightness, severity colours standing out more with each level (lightness step ≥ 0.06), and the distinctness checks above under simulated colour blindness. `scripts/theme-check.mjs` already implements these checks; the unit test reuses them.
+4. **The approval screen's red and yellow** must pass rule 3 in every theme (security UI; approved by the user 2026-10-16). The checks cover them: error and warning are checked as text (≥ 4.5:1) on both the page and the card, which also covers the banners' 2 px outlines (≥ 3:1), and they must stay ≥ 0.10 apart in lightness and under each colour-blindness simulation.
 5. **Cards follow the theme live:** the host sends theme changes to running cards; `api.ui.theme()` returns the full theme; a theme-change event is added. Host to card only, so no new card capability; card approvals are unaffected.
-6. **Generated cards use the theme:** the generator prompt tells Claude to use only theme variables and relative font sizes (`em`/`rem`); the validator warns about hard-coded colours and fixed pixel font sizes. The reference feed card is updated; installed feed cards then need reinstalling (approval is bound to files).
+6. **Generated cards use the theme and draw no chrome of their own** (generator rule 10): the generator prompt tells Claude to use only theme variables and relative font sizes (`em`/`rem`), and to leave frame, status and severity to the host; the validator warns about hard-coded colours and fixed pixel font sizes. The reference feed card is updated; installed feed cards then need reinstalling (approval is bound to files).
