@@ -14,5 +14,6 @@ console.log(`node ${process.version} (${process.execPath})`);
 
 const files = readdirSync(dir, { recursive: true }).map(String).filter((f) => f.endsWith(".test.ts")).map((f) => join(dir, f)).sort();
 if (files.length === 0) { console.error(`no *.test.ts files in ${dir}`); process.exit(1); }
-const r = spawnSync(process.execPath, ["--import", "tsx", "--test", ...files], { stdio: "inherit" });
+// Further arguments go to the test runner (test:podman: --test-concurrency=1, the files share one machine).
+const r = spawnSync(process.execPath, ["--import", "tsx", "--test", ...process.argv.slice(3), ...files], { stdio: "inherit" });
 process.exit(r.status ?? 1);

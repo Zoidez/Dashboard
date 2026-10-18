@@ -15,7 +15,7 @@
     "test:e2e": "npm run build && playwright test -c test/e2e/playwright.config.ts",
     "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
     "test:race": "node scripts/run-tests.mjs test/race",
-    "test:podman": "node scripts/run-tests.mjs test/podman",
+    "test:podman": "node scripts/run-tests.mjs test/podman --test-concurrency=1",
     "test:host-suite": "node scripts/record-host-suite.mjs --instance=Build",
     "package": "node scripts/package.mjs --instance=Build",
     "setup:shortcut": "powershell -ExecutionPolicy Bypass -File scripts/make-shortcut.ps1"
