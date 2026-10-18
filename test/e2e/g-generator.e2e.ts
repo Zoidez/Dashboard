@@ -40,7 +40,7 @@ function genInstance(steps: object[], opts: { approved?: boolean; suite?: boolea
   writeFileSync(join(exeDir, "scenario.json"), JSON.stringify({ steps }));
   mkdirSync(join(inst, "data", "generator"), { recursive: true });
   if (opts.approved !== false) {
-    writeFileSync(join(inst, "data", "generator", "cli-approvals.json"), JSON.stringify({ schema: 2, builds: [{ schema: 1, status: "approved", version: "2.1.293", sha256: sha, harness: "3.9", decidedAt: new Date().toISOString(), runs: ["test"], failed: [], missing: [] }] }));
+    writeFileSync(join(inst, "data", "generator", "cli-approvals.json"), JSON.stringify({ schema: 2, builds: [{ schema: 1, status: "approved", version: "2.1.293", sha256: sha, harness: "3.10", decidedAt: new Date().toISOString(), runs: ["test"], failed: [], missing: [] }] }));
   }
   if (opts.suite !== false) {
     writeFileSync(join(inst, "data", "generator", "host-suite.json"), JSON.stringify({ schema: 1, buildHash: buildHash(join(REPO, "dist")), passedAt: new Date().toISOString(), suites: ["test"] }));

@@ -44,7 +44,7 @@ async function setup(opts: { cliVersion?: string; approval?: Partial<Record<stri
   if (opts.approval !== null) {
     const rec = {
       schema: 1, status: "approved", version: "2.1.293", sha256: opts.hashOverride ?? (await sha256File(exePath)),
-      harness: "3.9", decidedAt: new Date().toISOString(), runs: ["r1"], failed: [], missing: [], ...(opts.approval ?? {}),
+      harness: "3.10", decidedAt: new Date().toISOString(), runs: ["r1"], failed: [], missing: [], ...(opts.approval ?? {}),
     };
     writeFileSync(approvalPath, JSON.stringify(rec));
   }
@@ -107,7 +107,7 @@ test("malformed approval files: refused", () => {
 test("tested list: the installed build is looked up by its hash; reason codes tell the states apart", async () => {
   const s = await setup({ approval: null });
   const sha = await sha256File(s.exePath);
-  const rec = (over: object) => ({ schema: 1, status: "approved", version: "2.1.293", sha256: sha, harness: "3.9", decidedAt: "", runs: ["r"], failed: [], missing: [], ...over });
+  const rec = (over: object) => ({ schema: 1, status: "approved", version: "2.1.293", sha256: sha, harness: "3.10", decidedAt: "", runs: ["r"], failed: [], missing: [], ...over });
   const write = (builds: object[]) => writeFileSync(s.approvalPath, JSON.stringify({ schema: 2, builds }));
   write([rec({ version: "2.1.290", sha256: "b".repeat(64) }), rec({})]);
   assert.equal((await verifyCli(s)).ok, true);
@@ -118,7 +118,7 @@ test("tested list: the installed build is looked up by its hash; reason codes te
   assert.equal(untested.ok === false && untested.code, "untested");
   write([rec({ status: "incomplete", missing: ["T9|x"] })]);
   assert.equal(((await verifyCli(s)) as { code: string }).code, "incomplete");
-  write([rec({ harness: "3.8" })]);
+  write([rec({ harness: "3.9" })]);
   assert.equal(((await verifyCli(s)) as { code: string }).code, "old-harness");
   const legacy = join(s.dir, "legacy.json");
   writeFileSync(legacy, JSON.stringify(rec({})));
@@ -159,7 +159,7 @@ test("approval file changed to blocked while a generation runs: killed", async (
   const child = await gate.launch([], { stdio: "pipe" });
   const exited = exitOf(child);
   gate.startWatching();
-  writeFileSync(s.approvalPath, JSON.stringify({ schema: 1, status: "blocked", version: "2.1.293", sha256: await sha256File(s.exePath), harness: "3.9", decidedAt: "", runs: [], failed: ["x"], missing: [] }));
+  writeFileSync(s.approvalPath, JSON.stringify({ schema: 1, status: "blocked", version: "2.1.293", sha256: await sha256File(s.exePath), harness: "3.10", decidedAt: "", runs: [], failed: ["x"], missing: [] }));
   await exited;
   assert.equal(gate.state.enabled, false);
   gate.stopWatching();

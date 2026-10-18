@@ -19,7 +19,9 @@ import { createHash } from "node:crypto";
 import { createReadStream, promises as fsp, watch, type FSWatcher } from "node:fs";
 import { EventEmitter } from "node:events";
 
-export const MIN_HARNESS = "3.9";
+/** Spike harness a CLI approval must come from. 3.10 (2026-10-18): retires approvals made before T10 checked every
+ *  tool call (CLI 2.1.293, approved by 3.9, also predates the 2.1.295 fix for tools that register after launch). */
+export const MIN_HARNESS = "3.10";
 
 export interface CliApproval {
   schema: 1;

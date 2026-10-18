@@ -2,7 +2,9 @@
 Spike 1 (v3.11): does the Claude Code CLI's own lockdown hold when the Dashboard generator runs
 as YOU, with no separate Windows account (generator boundary Option A)?
 
-v3.11: T11 tests the LASS triage configuration (docs/LASS.md 6; RULES.md host invariant 13): no tools
+v3.11: the Process Monitor tree drops a PID when its process exits (a reused PID once pulled Claude Desktop's own git
+      and PowerShell into the CLI's tree); child processes and writes are labelled with the test run.
+      T11 tests the LASS triage configuration (docs/LASS.md 6; RULES.md host invariant 13): no tools
       at all (--tools ""), no MCP, the smallest model, one turn. Its result is a separate verdict
       ("triage" in the tested list): a failing T11 keeps triage off and never touches the generator's
       approval. Triage verdicts count only runs of harness 3.11 or later.
@@ -619,7 +621,7 @@ function Invoke-PmAnalysis {
         if (-not $script:ClaudePids.Count) { Inconclusive "PM" "Capture completeness" "no saved list of launched CLI processes; found them from Process Create events instead" }
         elseif ($missing.Count) { Inconclusive "PM" "Capture completeness" "CLI runs missing from the capture (PIDs $($missing -join ',')); checks below cover only what was captured" }
         else { Assert "PM" "Every CLI run appears in the capture" $true }
-        Log "PM   NOTE  the process tree is rebuilt from PIDs in Process Create events; PID reuse during the capture is not ruled out."
+        Log "PM   NOTE  the process tree is rebuilt from PIDs in Process Create and Process Exit events (an exited PID leaves the tree, v3.11)."
 
         # Children: strict allowlist by exact path, SHA-256 AND command line. The command lines are the
         # CLI's own fixed startup routines seen on 2.1.293 (policy lookup, machine ID, locating git/sh,
@@ -733,6 +735,10 @@ function Read-ProcmonTree([string]$csv, $rootPids, [string]$exePath) {
                 $r = [pscustomobject]@{ PID = $procId; Operation = $f[$iOp]; Path = $f[$iPath]; Result = $f[$iRes]; Detail = $f[$iDet] }
                 $rows.Add($r)
                 if ($r.Operation -eq "Process Create" -and $r.Detail -match "PID:\s*(\d+)") { $null = $tree.Add($Matches[1]); $rootOf[$Matches[1]] = $(if ($rootOf.ContainsKey($procId)) { $rootOf[$procId] } else { $procId }) }
+                # v3.11: an exited process leaves the tree, so a later process that gets the same PID (Windows
+                # reuses them) is not counted as the CLI's. Seen 2026-10-17: Claude Desktop's background git
+                # and PowerShell landed on reused PIDs and failed three PM checks.
+                if ($r.Operation -eq "Process Exit") { $null = $tree.Remove($procId) }
             }
         }
         return [pscustomobject]@{ ColsOk = $colsOk; Total = $total; Bad = $bad; Rows = $rows.ToArray(); Tree = $tree; Seen = $seen; RootOf = $rootOf }
