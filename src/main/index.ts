@@ -3,7 +3,7 @@
  * The window and its grid, File > Options, the tray, one isolated view per approved card, the
  * broker, the file helper and the feeds. Not yet: the generator, validator and approval canvas.
  */
-import { app, BrowserWindow, dialog, Menu, protocol, session, shell as electronShell } from "electron";
+import { app, BrowserWindow, dialog, Menu, protocol, screen, session, shell as electronShell } from "electron";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AuditLog } from "./audit.js";
@@ -35,6 +35,7 @@ import { ActivityLog } from "./lass/activity.js";
 import { PromptHistory } from "./lass/prompts.js";
 import { DailyBudget } from "./lass/budget.js";
 import { LassService } from "./lass/service.js";
+import { launcherExe, readBounds, restartIntoPending, saveBounds, setPending, writeReady } from "./launcher.js";
 import { verifyCli } from "./generator/cli-gate.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
@@ -180,14 +181,26 @@ function createWindow(): BrowserWindow {
   ses.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
   ses.setPermissionCheckHandler(() => false);
 
+  // Where the window was (the launcher's restart screen appears there, and the new build opens there).
+  const saved = readBounds(paths.root);
+  const onScreen = saved && screen.getAllDisplays().some((d) => { const a = d.workArea; return saved.x < a.x + a.width && saved.x + saved.width > a.x && saved.y < a.y + a.height && saved.y + saved.height > a.y; });
   const w = new BrowserWindow({
-    width: 1180, height: 800, title: "Dashboard", show: false, icon: join(distDir, "assets", "icon.png"),
+    ...(onScreen ? { x: saved.x, y: saved.y, width: saved.width, height: saved.height } : { width: 1180, height: 800 }),
+    title: "Dashboard", show: false, icon: join(distDir, "assets", "icon.png"),
     webPreferences: {
       preload: join(distDir, "preload", "dashboard.js"),
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, spellcheck: false, devTools,
     },
   });
-  w.once("ready-to-show", () => w.show());
+  w.once("ready-to-show", () => {
+    w.show();
+    // The launcher waits for this report before it keeps a new build (LASS.md 8).
+    writeReady(paths.root, { pid: process.pid, build: currentBuildHash.slice(0, 12), hostSuiteOk: hostSuiteProblem(join(paths.generator, "host-suite.json"), currentBuildHash) === null });
+  });
+  let boundsTimer: NodeJS.Timeout | null = null;
+  const keepBounds = () => { if (boundsTimer) clearTimeout(boundsTimer); boundsTimer = setTimeout(() => { if (!w.isDestroyed() && !w.isMinimized() && !w.isMaximized()) saveBounds(paths.root, w.getBounds()); }, 500); };
+  w.on("move", keepBounds);
+  w.on("resize", keepBounds);
   return w;
 }
 
@@ -356,7 +369,8 @@ app.whenReady().then(async () => {
     win: w, host: () => host, approvals, audit, options, feeds, layout: layoutStore, gate: gateState,
     distDir, reportsDir: paths.reports, devTools,
     themeChanged: () => themes.changed(),
-    setLoginItem: (open) => app.setLoginItemSettings({ openAtLogin: open, path: process.execPath }),
+    // Start with Windows starts the launcher, so an update does not break the entry (LASS.md 8).
+    setLoginItem: (open) => app.setLoginItemSettings({ openAtLogin: open, path: existsSync(launcherExe(paths.root)) ? launcherExe(paths.root) : process.execPath }),
     generator: {
       view: generatorView,
       start: (req) => {
@@ -383,7 +397,9 @@ app.whenReady().then(async () => {
   if (options.general.startWithWindows) shell.applyLoginItem();
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate, themes, activity, prompts, investigations, lass };
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate, themes, activity, prompts, investigations, lass,
+    // LASS phase 4 uses this after the user approves a rollout.
+    update: { setPending: (id: string) => setPending(paths.root, id), restart: () => { restartIntoPending(paths.root, w.isDestroyed() ? null : w.getBounds()); activity.write("host", "update.restart"); app.quit(); } } };
 
   await w.loadFile(join(distDir, "renderer", "index.html"));
   await feeds.start();

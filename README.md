@@ -88,7 +88,7 @@ npm start                # run the app on the Build/ instance
 npm test                 # typecheck, unit tests, end-to-end tests
 npm run test:race        # the two 5-minute junction-swap races
 npm run test:host-suite  # security suite + record for this build
-npm run package          # portable Build/app/Dashboard.exe
+npm run package          # portable build in Build/app/<build-id>/ + launcher Build/Dashboard.exe (--pending: try it on the next start)
 npm run setup:shortcut   # once: Build/Dashboard.lnk
 ```
 

@@ -1,6 +1,6 @@
 # Dashboard — v1 test plan
 
-Approved 2026-10-09. Built around the negative tests in ARCHITECTURE.md "Verification". Every test is automated unless marked MANUAL, runs on the user's Windows PC against a packaged build in a throwaway instance folder (`DASH_EXE=<path to Dashboard.exe> npx playwright test -c test/e2e/playwright.config.ts`; without DASH_EXE the same tests run on the dev build), and reports PASS / FAIL / INCONCLUSIVE under the same evidence rules as the spike (RULES.md, Spike evidence rules): a blocking test passes only if the forbidden thing was attempted, was refused and logged, and its effect is absent.
+Approved 2026-10-09. Built around the negative tests in ARCHITECTURE.md "Verification". Every test is automated unless marked MANUAL, runs on the user's Windows PC against a packaged build in a throwaway instance folder (`DASH_EXE=Build\app\<build-id>\Dashboard.exe npx playwright test -c test/e2e/playwright.config.ts`; without DASH_EXE the same tests run on the dev build), and reports PASS / FAIL / INCONCLUSIVE under the same evidence rules as the spike (RULES.md, Spike evidence rules): a blocking test passes only if the forbidden thing was attempted, was refused and logged, and its effect is absent.
 
 Tooling: Node's built-in test runner for host modules; Playwright's Electron support for the running app; hostile test cards that try forbidden things; Process Monitor for the file and process checks, as in the spike.
 
