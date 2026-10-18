@@ -36,3 +36,4 @@ Build/Dashboard.lnk
 .env
 .env.*
 infra/**/secrets/
+Build/app.old*/

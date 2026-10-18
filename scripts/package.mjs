@@ -7,7 +7,7 @@
 // "PACKAGE FAILED" line: a failed run must not look like a finished one (2026-10-10: two runs failed
 // silently and Build/app kept the old build).
 import { spawn } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { writeIcon } from "./icon.mjs";
 import { ensureProjectNode } from "./project-node.mjs";
@@ -34,11 +34,15 @@ const run = (cmd) => new Promise((done) => {
 const instance = resolve(process.argv.find((a) => a.startsWith("--instance="))?.slice(11) ?? "Build");
 if (!existsSync(join(instance, "data")) && !existsSync(join(instance, "ClaudeExchange"))) fail(`${instance} does not look like a Dashboard instance`);
 const app = join(instance, "app");
-const old = join(instance, "app.old");
+// The previous app goes aside under a fresh name each time, so a leftover that cannot be deleted yet
+// (another program still holding a file in it) never blocks the next build.
+const old = join(instance, `app.old-${Date.now()}`);
+const leftovers = () => readdirSync(instance).filter((n) => /^app\.old(-\d+)?$/.test(n)).map((n) => join(instance, n));
+const tidy = () => { for (const d of leftovers()) { try { rmSync(d, { recursive: true, force: true }); } catch (e) { say(`note: ${d} could not be removed yet (${e.code ?? e.message}); it is removed on a later run`); } } };
 
 // A running Dashboard locks Build/app. Find out now, not after a long build: on Windows a folder
 // with an open file in it cannot be renamed.
-if (existsSync(old)) fail(`${old} is left over from an earlier run. Delete it, then run again.`);
+tidy();
 if (existsSync(app)) {
   try { renameSync(app, old); renameSync(old, app); }
   catch (e) { fail(`Build\\app is in use (${e.code ?? e.message}). Close the Dashboard (tray icon too) and run again.`); }
@@ -59,7 +63,7 @@ try {
 } catch (e) {
   fail(`could not replace Build\\app (${e.code ?? e.message}). The previous app is in ${old} if the copy failed halfway.`);
 }
-rmSync(old, { recursive: true, force: true });
+tidy();
 
 const asar = statSync(join(app, "resources", "app.asar"));
 say(`\nPACKAGED OK  ${new Date().toISOString()}\n  ${join(app, "Dashboard.exe")}\n  app.asar ${asar.size} bytes\n`);
