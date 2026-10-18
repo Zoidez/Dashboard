@@ -24,6 +24,8 @@ playwright-report/
 pack/
 pack-resources/
 Build/Dashboard.lnk
+Build/Dashboard.exe
+Build/Dashboard.exe.new
 
 # Credentials and keys: never commit (container plans: NATS credentials, per-card
 # certificates, the development container's GitHub token). Added 2026-10-16.
