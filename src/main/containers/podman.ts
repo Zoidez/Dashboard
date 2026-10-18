@@ -9,8 +9,8 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
-import type { ContainerBackend, FileSet, JobId, JobSpec, JobStatus } from "./backend.js";
-import { JOB_USER, NETWORKS, renderJob, toYaml, validateSpec } from "./render.js";
+import type { ContainerBackend, FileSet, JobId, JobSpec, JobStatus, NetworkProfile } from "./backend.js";
+import { JOB_USER, NETWORKS, PROXIES, renderJob, toYaml, validateSpec } from "./render.js";
 import { readTar, safeRelPath, writeTar } from "./tar.js";
 
 export interface RunResult { code: number | null; stdout: Buffer; stderr: string }
@@ -18,9 +18,10 @@ export interface RunResult { code: number | null; stdout: Buffer; stderr: string
 export type Runner = (args: string[], opts?: { stdin?: Buffer; timeoutMs?: number }) => Promise<RunResult>;
 
 const ID = /^job-[a-z][a-z0-9-]{0,30}[a-z0-9]-[0-9a-f]{8}$/;
-/** The Podman machine set up by setuperify-podman.ps1 (option A, INFRASTRUCTURE.md). */
+/** The Podman machine set up by setup\verify-podman.ps1 (option A, INFRASTRUCTURE.md). */
 export const MACHINE = "dashboard";
-export const EGRESS_POD = "lass-egress";
+/** Networks that must have no route out: a job on them reaches the outside only through a proxy. */
+export const INTERNAL_NETWORKS = ["lass-internal", "lass-fix"];
 
 /** A problem only the user can solve (shown as a step in the LASS bar). */
 export class UserStepError extends Error {}
@@ -93,15 +94,25 @@ export class PodmanBackend implements ContainerBackend {
   private yamlOf(id: JobId): string { return join(this.jobsDir, `${id}.yaml`); }
   private ctr(id: JobId): string { return `${id}-main`; }
 
-  /** Starts the machine if it is stopped and, for egress jobs, the egress proxy pod (both set up once by the user). */
-  async prepare(egress: boolean): Promise<void> {
+  /** Starts the machine if it is stopped, checks that the internal networks are internal, and starts the
+   *  proxy pods the given profiles need (all set up once by the user with setup\lass-dev.ps1). */
+  async prepare(profiles: NetworkProfile[]): Promise<void> {
     const m = await this.run(["machine", "inspect", MACHINE, "--format", "{{.State}}"]);
     if (m.code !== 0) throw new UserStepError(`The Podman machine "${MACHINE}" is not set up: run setup\\verify-podman.ps1 once (INFRASTRUCTURE.md).`);
     if (m.stdout.toString("utf8").trim().toLowerCase() !== "running") await this.pm(["machine", "start", MACHINE], { timeoutMs: 300_000 });
-    if (!egress) return;
-    const p = await this.run(["pod", "inspect", EGRESS_POD, "--format", "{{.State}}"]);
-    if (p.code !== 0) throw new UserStepError("The egress proxy is not set up: run setup\\lass-dev.ps1 once in PowerShell (it builds the container images and starts the proxy).");
-    if (p.stdout.toString("utf8").trim().toLowerCase() !== "running") await this.pm(["pod", "start", EGRESS_POD], { timeoutMs: 120_000 });
+    for (const p of new Set(profiles)) {
+      for (const net of NETWORKS[p].filter((n) => INTERNAL_NETWORKS.includes(n))) {
+        const r = await this.run(["network", "inspect", net, "--format", "{{.Internal}}"]);
+        if (r.code !== 0) throw new UserStepError(`The container network ${net} is not set up: run setup\\lass-dev.ps1 once in PowerShell.`);
+        // A job on a network with a route out could bypass its proxy: refuse rather than run.
+        if (r.stdout.toString("utf8").trim() !== "true") throw new Error(`the container network ${net} is not internal (it has a route out); refusing to start jobs on it`);
+      }
+      const proxy = PROXIES[p];
+      if (!proxy) continue;
+      const r = await this.run(["pod", "inspect", proxy.pod, "--format", "{{.State}}"]);
+      if (r.code !== 0) throw new UserStepError(`The proxy ${proxy.pod} is not set up: run setup\\lass-dev.ps1 once in PowerShell (it builds the container images and starts the proxies).`);
+      if (r.stdout.toString("utf8").trim().toLowerCase() !== "running") await this.pm(["pod", "start", proxy.pod], { timeoutMs: 120_000 });
+    }
   }
 
   /** The newest local image of a recipe (localhost/<name>:<git commit>), preferring builds from committed recipes. */
@@ -119,9 +130,10 @@ export class PodmanBackend implements ContainerBackend {
 
   async start(spec: JobSpec): Promise<JobId> {
     validateSpec(spec);
-    if (spec.network === "egress") {
-      const proxy = await this.run(["pod", "exists", "lass-egress"]);
-      if (proxy.code !== 0) throw new Error("the egress proxy (pod lass-egress) is not running");
+    const needed = PROXIES[spec.network];
+    if (needed) {
+      const proxy = await this.run(["pod", "exists", needed.pod]);
+      if (proxy.code !== 0) throw new Error(`the proxy (pod ${needed.pod}) is not running`);
     }
     const id = `job-${spec.name}-${randomBytes(4).toString("hex")}`;
     mkdirSync(this.jobsDir, { recursive: true });

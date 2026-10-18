@@ -7,7 +7,13 @@ import { PERSISTENT_VOLUMES, type JobSpec } from "./backend.js";
 
 export const JOB_USER = 10001;
 export const EGRESS_PROXY = "http://lass-egress:3128";
-export const NETWORKS: Record<JobSpec["network"], string[]> = { none: ["none"], internal: ["lass-internal"], egress: ["lass-internal"] };
+export const API_PROXY = "http://lass-egress-api:3128";
+export const NETWORKS: Record<JobSpec["network"], string[]> = { none: ["none"], internal: ["lass-internal"], egress: ["lass-internal"], anthropic: ["lass-fix"] };
+/** The proxy pod a profile depends on, and its address. */
+export const PROXIES: Partial<Record<JobSpec["network"], { pod: string; url: string }>> = {
+  egress: { pod: "lass-egress", url: EGRESS_PROXY },
+  anthropic: { pod: "lass-egress-api", url: API_PROXY },
+};
 
 const NAME = /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/;
 const IMAGE = /^(localhost\/[a-z0-9][a-z0-9._/-]{0,127}:[A-Za-z0-9._-]{1,128}|[a-z0-9][a-z0-9.-]{0,252}(:\d{1,5})?\/[a-z0-9][a-z0-9._/-]{0,255}@sha256:[0-9a-f]{64})$/;
@@ -32,7 +38,7 @@ export function validateSpec(s: JobSpec): void {
     if (RESERVED_ENV.has(k)) no(`env ${k} is set by the network profile`);
     if (typeof v !== "string" || v.length > 4096 || v.includes("\0")) no(`env ${k}: a string up to 4096 characters`);
   }
-  if (!["none", "internal", "egress"].includes(s.network)) no("network: none, internal or egress");
+  if (!["none", "internal", "egress", "anthropic"].includes(s.network)) no("network: none, internal, egress or anthropic");
   const r = s.resources;
   if (!r || !QUANTITY_CPU.test(r.cpu) || !QUANTITY_MEM.test(r.memory)) no("resources: cpu like \"500m\" or \"2\", memory like \"512Mi\" or \"2Gi\"");
   if (r.cpuLimit !== undefined && !QUANTITY_CPU.test(r.cpuLimit)) no("resources.cpuLimit");
@@ -49,8 +55,9 @@ export function renderJob(id: string, s: JobSpec): object[] {
   validateSpec(s);
   const scratch = [...new Set(["/tmp", ...(s.scratch ?? [])])];
   const env = Object.entries(s.env ?? {}).map(([name, value]) => ({ name, value }));
-  if (s.network === "egress") for (const name of ["HTTPS_PROXY", "https_proxy"]) env.push({ name, value: EGRESS_PROXY });
-  if (s.network === "egress") env.push({ name: "NO_PROXY", value: "localhost,127.0.0.1" });
+  const proxy = PROXIES[s.network];
+  if (proxy) for (const name of ["HTTPS_PROXY", "https_proxy"]) env.push({ name, value: proxy.url });
+  if (proxy) env.push({ name: "NO_PROXY", value: "localhost,127.0.0.1" });
   const volumes: object[] = [], mounts: object[] = [];
   scratch.forEach((m, i) => { volumes.push({ name: `scratch-${i}`, emptyDir: {} }); mounts.push({ name: `scratch-${i}`, mountPath: m }); });
   (s.volumes ?? []).forEach((v, i) => { volumes.push({ name: `data-${i}`, persistentVolumeClaim: { claimName: v.claim } }); mounts.push({ name: `data-${i}`, mountPath: v.mountPath }); });

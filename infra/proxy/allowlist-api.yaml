@@ -1,0 +1,13 @@
+# Allowlist of the Anthropic-only proxy lass-egress-api (docs/INFRASTRUCTURE.md N2; user decision
+# 2026-10-18). The only way out of the network lass-fix, where LASS fix runs (Claude with full tools and
+# untrusted evidence) work. No npm registry and no GitHub: a planted instruction carrying someone
+# else's credentials cannot publish or push anything from there. The hosts Claude Code 2.1.296 used
+# for sign-in and work (proxy log, 2026-10-17). Add hosts only after review.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lass-egress-api-allowlist
+data:
+  domains: |
+    api.anthropic.com
+    platform.claude.com

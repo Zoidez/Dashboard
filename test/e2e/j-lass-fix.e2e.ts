@@ -39,7 +39,7 @@ test("J: LASS fix in the bar: unavailable reason, review with red files, confirm
         backend: {
           start: async () => "job-lass-fix-0000000a", status: async () => ({ state: "running" }),
           logs: async function* () { yield polls++ < 3 ? '{"step":"claude"}' : '{"step":"finished"}'; }, copyIn: async () => undefined, stop: async () => undefined,
-          copyOut: async () => ({ "out/fix.patch": Buffer.from(diff("src/main/layout.ts") + diff("docs/PROJECT.md")), "out/summary.md": Buffer.from("Keep the layout after a resize.\n\nThe resize handler saved before the snap."), "out/status.json": Buffer.from('{"npmCi":0,"claude":0,"typecheck":0,"unit":0}') }),
+          copyOut: async () => ({ "out/deps.json": Buffer.from('{"npm":0}'), "out/fix.patch": Buffer.from(diff("src/main/layout.ts") + diff("docs/PROJECT.md")), "out/summary.md": Buffer.from("Keep the layout after a resize.\n\nThe resize handler saved before the snap."), "out/status.json": Buffer.from('{"npmCi":0,"claude":0,"typecheck":0,"unit":0}') }),
         },
       };
       d.fixes.d.test = async () => ({ build: "bbbbbbbbbbbb", buildHash: "h", worktree: "w", branch: "lass/x" });

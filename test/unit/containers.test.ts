@@ -107,5 +107,36 @@ test("backend: kube play with the profile's networks, copies by tar, stop remove
   await assert.rejects(b.status("job-x;rm"), /unknown job id/);
   // The egress profile needs the proxy pod.
   const noProxy = new PodmanBackend({ podmanDir: mkdtempSync(join(tmpdir(), "pm-")), podmanExe: "podman.exe", run: async (a) => ({ code: a[0] === "pod" ? 1 : 0, stdout: Buffer.alloc(0), stderr: "" }) });
-  await assert.rejects(noProxy.start(base()), /egress proxy/);
+  await assert.rejects(noProxy.start(base()), /proxy \(pod lass-egress\) is not running/);
+  await assert.rejects(noProxy.start({ ...base(), network: "anthropic" }), /proxy \(pod lass-egress-api\) is not running/);
+});
+
+test("anthropic profile: only lass-fix, the Anthropic-only proxy; prepare refuses a network with a route out", async () => {
+  const pod = (renderJob("job-fix-run-0a1b2c3d", { ...base(), network: "anthropic" }) as any[]).find((d) => d.kind === "Pod");
+  const env = Object.fromEntries(pod.spec.containers[0].env.map((e: any) => [e.name, e.value]));
+  assert.equal(env.HTTPS_PROXY, "http://lass-egress-api:3128");
+  assert.equal(env.https_proxy, "http://lass-egress-api:3128");
+  const calls: string[][] = [];
+  let internal = "true", apiPod = 0;
+  const run: Runner = async (args) => {
+    calls.push(args);
+    if (args[0] === "machine") return { code: 0, stdout: Buffer.from("running\n"), stderr: "" };
+    if (args[0] === "network") return { code: 0, stdout: Buffer.from(internal + "\n"), stderr: "" };
+    if (args[0] === "pod" && args[1] === "inspect") return { code: args[2] === "lass-egress-api" ? apiPod : 0, stdout: Buffer.from(args[2] === "lass-egress-api" ? "Exited\n" : "Running\n"), stderr: "" };
+    return { code: 0, stdout: Buffer.alloc(0), stderr: "" };
+  };
+  const b = new PodmanBackend({ podmanDir: mkdtempSync(join(tmpdir(), "pm-")), podmanExe: "podman.exe", run });
+  const id = await b.start({ ...base(), network: "anthropic", volumes: [] });
+  const play = calls.find((c) => c[0] === "kube" && c[1] === "play")!;
+  assert.deepEqual(play.slice(2, 4), ["--network", "lass-fix"]);
+  assert.ok(!play.includes("lass-internal"), "the full proxy's network is not joined");
+  await b.stop(id);
+  calls.length = 0;
+  await b.prepare(["egress", "anthropic"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "network").map((c) => c[2]), ["lass-internal", "lass-fix"]);
+  assert.ok(calls.some((c) => c.join(" ") === "pod start lass-egress-api"), "a stopped proxy is started");
+  internal = "false";
+  await assert.rejects(b.prepare(["anthropic"]), /lass-fix is not internal/);
+  internal = "true"; apiPod = 125;
+  await assert.rejects(b.prepare(["anthropic"]), /lass-egress-api is not set up/);
 });

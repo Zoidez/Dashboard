@@ -143,7 +143,7 @@ const fixes = new LassFixes({
   investigations, budget: lassBudget, activity, lassDir: join(paths.data, "lass"), root: paths.root,
   repo: existsSync(join(repoDir, ".git")) && existsSync(join(repoDir, "package.json")) ? repoDir : null,
   container: podBackend
-    ? { backend: podBackend, prepare: () => podBackend.prepare(true), image: () => podBackend.latestImage("dashboard-lass-dev") }
+    ? { backend: podBackend, prepare: (profiles) => podBackend.prepare(profiles), image: () => podBackend.latestImage("dashboard-lass-dev") }
     : { unavailable: "Podman is not installed for this instance (setup\\install-podman.ps1, INFRASTRUCTURE.md)" },
   brief: (inv) => lass.fixBrief(inv),
   setPending: (id) => setPending(paths.root, id),

@@ -8,11 +8,15 @@
   1. Builds infra/images/egress-proxy and infra/images/lass-dev, tagged with the git commit (I1).
   2. Creates the internal network lass-internal (--internal: no route out) if missing.
   3. Starts the proxy pod (lass-internal + the outside network) and the dev pod (lass-internal only)
-     with podman kube play, from infra/k8s/*.yaml and infra/proxy/allowlist.yaml.
+     with podman kube play, from infra/k8s/*.yaml and infra/proxy/allowlist.yaml; and the
+     Anthropic-only proxy lass-egress-api (internal network lass-fix + the outside network,
+     infra/proxy/allowlist-api.yaml), the only way out for LASS fix runs (decision 2026-10-18).
   4. Checks, each recorded PASS/FAIL/INFO:
      the dev container runs under gVisor as user 10001 with a read-only root; Claude Code is installed;
      an allowed host is reached through the proxy, a host not on the list is refused, and nothing is
      reached without the proxy; no Windows drive and no Podman socket inside; the proxy logs requests.
+  F1-F5 check lass-fix from a throwaway container: Anthropic reached, the npm registry and GitHub
+  refused, the full proxy not reachable, nothing reached without a proxy.
   -AfterLogin: after the user signed in once (Build\data\podman\podman.cmd exec -it lass-dev-main claude), runs one prompt
   through the proxy and lists what the proxy refused (open item 4).
   -Down removes both pods (the login volume stays).
@@ -48,11 +52,13 @@ function Ran($r) { return $r.out -notmatch "no container with name or ID|Error: 
 $egressYaml = Join-Path $repoRoot "infra\k8s\lass-egress.yaml"
 $devYaml    = Join-Path $repoRoot "infra\k8s\lass-dev.yaml"
 $allowlist  = Join-Path $repoRoot "infra\proxy\allowlist.yaml"
-$rendered   = @{ egress = Join-Path $outDir "lass-egress.yaml"; dev = Join-Path $outDir "lass-dev.yaml" }
+$apiYaml    = Join-Path $repoRoot "infra\k8s\lass-egress-api.yaml"
+$allowApi   = Join-Path $repoRoot "infra\proxy\allowlist-api.yaml"
+$rendered   = @{ egress = Join-Path $outDir "lass-egress.yaml"; dev = Join-Path $outDir "lass-dev.yaml"; api = Join-Path $outDir "lass-egress-api.yaml" }
 
 if ($Down) {
   foreach ($f in $rendered.Values) { if (Test-Path $f) { [void](Pm @("kube", "down", $f)) } }
-  Write-Host "Both pods removed; the login volume lass-claude-config stays."; exit
+  Write-Host "The pods are removed; the volumes lass-claude-config (login) and lass-npm-cache stay."; exit
 }
 
 if ($AfterLogin) {
@@ -89,15 +95,22 @@ Record "N1" "Network lass-internal is internal, with DNS" $(if ($net.out -eq "tr
 $eg = Pm @("network", "inspect", "egress", "--format", "{{.Internal}} {{.DNSEnabled}} {{range .Subnets}}{{.Subnet}}{{end}}")
 if ($eg.code -ne 0) { [void](Pm @("network", "create", "--subnet", "10.89.250.0/24", "egress")); $eg = Pm @("network", "inspect", "egress", "--format", "{{.Internal}} {{.DNSEnabled}} {{range .Subnets}}{{.Subnet}}{{end}}") }
 Record "N2" "Network egress: outside, with DNS, subnet 10.89.250.0/24" $(if ($eg.out -eq "false true 10.89.250.0/24") { "PASS" } else { "FAIL" }) $eg.out
+# LASS fix runs: an internal network whose only way out is the Anthropic-only proxy (decision 2026-10-18).
+$fx = Pm @("network", "inspect", "lass-fix", "--format", "{{.Internal}} {{.DNSEnabled}}")
+if ($fx.code -ne 0) { [void](Pm @("network", "create", "--internal", "lass-fix")); $fx = Pm @("network", "inspect", "lass-fix", "--format", "{{.Internal}} {{.DNSEnabled}}") }
+Record "N3" "Network lass-fix is internal, with DNS" $(if ($fx.out -eq "true true") { "PASS" } else { "FAIL" }) "internal, dns: $($fx.out)"
 
 # ---------- 3. pods ----------
 [IO.File]::WriteAllText($rendered.egress, ((Get-Content -Raw $egressYaml).Replace("{{IMAGE}}", $images["egress-proxy"])).Replace("`r", ""), (New-Object Text.UTF8Encoding $false))
 [IO.File]::WriteAllText($rendered.dev, ((Get-Content -Raw $devYaml).Replace("{{IMAGE}}", $images["lass-dev"])).Replace("`r", ""), (New-Object Text.UTF8Encoding $false))
+[IO.File]::WriteAllText($rendered.api, ((Get-Content -Raw $apiYaml).Replace("{{IMAGE}}", $images["egress-proxy"])).Replace("`r", ""), (New-Object Text.UTF8Encoding $false))
 foreach ($f in $rendered.Values) { [void](Pm @("kube", "down", $f)) }
 $p1 = Pm @("kube", "play", "--network", "lass-internal", "--network", "egress", "--configmap", $allowlist, $rendered.egress)
 Record "P1" "Egress proxy pod starts" $(if ($p1.code -eq 0) { "PASS" } else { "FAIL" }) $(if ($p1.code -ne 0) { $p1.out })
 $p2 = Pm @("kube", "play", "--network", "lass-internal", $rendered.dev)
 Record "P2" "Dev pod starts" $(if ($p2.code -eq 0) { "PASS" } else { "FAIL" }) $(if ($p2.code -ne 0) { $p2.out })
+$p3 = Pm @("kube", "play", "--network", "lass-fix", "--network", "egress", "--configmap", $allowApi, $rendered.api)
+Record "P3" "Anthropic-only proxy pod starts" $(if ($p3.code -eq 0) { "PASS" } else { "FAIL" }) $(if ($p3.code -ne 0) { $p3.out })
 Start-Sleep -Seconds 4
 
 # ---------- 4. walls ----------
@@ -116,6 +129,20 @@ mount | grep -Ei "drvfs|aname=[A-Za-z]:|/mnt/[a-z] " || echo no-windows-mounts; 
 Record "D6" "No Windows drive and no Podman socket inside" $(if ((Ran $host_) -and $host_.out -match "no-windows-mounts" -and $host_.out -notmatch "srw") { "PASS" } else { "FAIL" }) $host_.out
 $plog = Pm @("logs", "--tail", "20", "lass-egress-proxy")
 Record "D7" "The proxy logs requests (allowed and denied)" $(if ($plog.out -match "TCP_TUNNEL|TCP_DENIED") { "PASS" } else { "FAIL" }) (($plog.out -split "`n" | Where-Object { $_ -match "TCP_" } | Select-Object -Last 6) -join "`n")
+
+# ---------- 5. the fix-run network (lass-fix) ----------
+# A throwaway container as a fix run sees the network: the dev image, hardened, on lass-fix only.
+function InFix([string]$s) { $b = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($s.Replace("`r", ""))); return Pm @("run", "--rm", "--network", "lass-fix", "--read-only", "--tmpfs", "/tmp", "--user", "10001", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "-e", "HTTPS_PROXY=http://lass-egress-api:3128", $images["lass-dev"], "sh", "-c", "echo $b | base64 -d | sh") }
+$f1 = InFix 'curl -sS -o /dev/null -w "%{http_code}" --max-time 15 https://api.anthropic.com/ 2>&1'
+Record "F1" "Fix network: Anthropic reached through lass-egress-api" $(if ($f1.out -match "^\d{3}$" -and $f1.out -ne "000") { "PASS" } else { "FAIL" }) "HTTP $($f1.out)"
+$f2 = InFix 'for h in registry.npmjs.org github.com objects.githubusercontent.com; do printf "%s " $h; curl -sS -o /dev/null -w "%{http_code}" --max-time 15 https://$h/ 2>&1 | tr -d "\n"; echo; done'
+Record "F2" "Fix network: npm registry and GitHub refused" $(if ((Ran $f2) -and ($f2.out -split "`n" | Where-Object { $_ -match "^\S+ " }).Count -eq 3 -and $f2.out -notmatch " (2|3)\d\d") { "PASS" } else { "FAIL" }) $f2.out
+$f3 = InFix 'curl -sS -o /dev/null -w "%{http_code}" --max-time 10 --proxy http://lass-egress:3128 https://registry.npmjs.org/ 2>&1; echo " exit=$?"'
+Record "F3" "Fix network: the full proxy lass-egress cannot be reached" $(if ((Ran $f3) -and $f3.out -notmatch "^(2|3|4)\d\d ") { "PASS" } else { "FAIL" }) $f3.out
+$f4 = InFix 'curl -sS -o /dev/null -w "%{http_code}" --max-time 10 --noproxy "*" https://api.anthropic.com/ 2>&1; echo " exit=$?"'
+Record "F4" "Fix network: nothing reached without the proxy" $(if ((Ran $f4) -and $f4.out -notmatch "^(2|3|4)\d\d ") { "PASS" } else { "FAIL" }) $f4.out
+$alog = Pm @("logs", "--tail", "20", "lass-egress-api-proxy")
+Record "F5" "The Anthropic-only proxy logs its refusals" $(if ($alog.out -match "TCP_DENIED") { "PASS" } else { "FAIL" }) (($alog.out -split "`n" | Where-Object { $_ -match "TCP_" } | Select-Object -Last 6) -join "`n")
 
 Write-Host "`nLog: $logFile"
 Write-Host "Next (the user, once): sign in inside the container, then run this script with -AfterLogin:"

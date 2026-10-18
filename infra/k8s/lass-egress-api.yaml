@@ -1,0 +1,37 @@
+# Anthropic-only egress proxy pod (docs/INFRASTRUCTURE.md N2; user decision 2026-10-18). The same image as
+# lass-egress, with the allowlist infra/proxy/allowlist-api.yaml. Joins the internal network lass-fix (LASS fix
+# runs) and the outside network "egress"; the full proxy lass-egress is not on lass-fix, so a fix run cannot
+# reach the npm registry or GitHub. {{IMAGE}} is filled in with the built image (tagged with its git commit).
+# Run: podman kube play --network lass-fix --network egress --configmap infra/proxy/allowlist-api.yaml <this file>
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lass-egress-api
+  labels: { app: lass-egress-api }
+spec:
+  containers:
+    - name: proxy
+      image: "{{IMAGE}}"
+      resources:
+        requests: { cpu: "100m", memory: "64Mi" }
+        limits: { cpu: "500m", memory: "256Mi" }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+      readinessProbe: { exec: { command: ["sh", "-c", "nc -z 127.0.0.1 3128"] }, periodSeconds: 30 }
+      livenessProbe: { exec: { command: ["sh", "-c", "nc -z 127.0.0.1 3128"] }, periodSeconds: 60 }
+      volumeMounts:
+        - { name: allowlist, mountPath: /etc/squid/allow, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+        - { name: squid-run, mountPath: /var/run/squid }
+        - { name: squid-cache, mountPath: /var/cache/squid }
+        - { name: squid-log, mountPath: /var/log/squid }
+  volumes:
+    - { name: allowlist, configMap: { name: lass-egress-api-allowlist } }
+    - { name: tmp, emptyDir: {} }
+    - { name: squid-run, emptyDir: {} }
+    - { name: squid-cache, emptyDir: {} }
+    - { name: squid-log, emptyDir: {} }

@@ -113,6 +113,7 @@ These need the user's Windows. In a hosted future they become the local agent ap
 - Every container that needs the internet goes through the project's own egress proxy, itself a container. The allowlist lives in the proxy's ConfigMap.
 - The container network allows nothing else.
 - LASS allowlist: the Claude API and sign-in endpoints, the npm registry and GitHub.
+- **LASS fix runs (user decision 2026-10-18):** a second proxy, `lass-egress-api`, allows only the Claude API and sign-in (`infra/proxy/allowlist-api.yaml`). It is the only pod besides the fix run on the internal network `lass-fix`; the full proxy is not on that network. Packages for a fix run are installed beforehand by a separate job without Claude and without the login (full proxy, cache volume `lass-npm-cache`, emptied first); the fix job installs them offline from that cache. So a planted instruction that brings someone else's npm or GitHub credentials has nowhere to publish or push to. The Dashboard refuses to start jobs on `lass-fix` or `lass-internal` if either network has a route out (`prepare`). Checked by `setup\lass-dev.ps1` (F1-F5).
 - In a hosted future, each card's network permission becomes the proxy's rules for that card.
 
 *Why:* permissions enforced in your own proxy are the same on Podman and Kubernetes. On Kubernetes a NetworkPolicy then only has to say "talk only to the proxy". Rules written as Podman firewall settings would have to be redone.

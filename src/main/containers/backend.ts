@@ -11,11 +11,13 @@
  */
 
 /** Network profiles. none: no network at all. internal: lass-internal only (no route out).
- *  egress: lass-internal, with HTTPS_PROXY pointing at the egress proxy (its allowlist decides). */
-export type NetworkProfile = "none" | "internal" | "egress";
+ *  egress: lass-internal, with HTTPS_PROXY pointing at the egress proxy (its allowlist decides: Claude,
+ *  npm, GitHub). anthropic: lass-fix only, an internal network whose one way out is the proxy
+ *  lass-egress-api, which allows Anthropic's hosts only (LASS fix runs; the full proxy is not on it). */
+export type NetworkProfile = "none" | "internal" | "egress" | "anthropic";
 
 /** Persistent volumes a job may mount, by claim name (S1, S4). Anything else is refused. */
-export const PERSISTENT_VOLUMES = ["lass-claude-config"] as const;
+export const PERSISTENT_VOLUMES = ["lass-claude-config", "lass-npm-cache"] as const;
 export type PersistentVolume = (typeof PERSISTENT_VOLUMES)[number];
 
 export interface JobSpec {

@@ -22,7 +22,7 @@ test("fix run: bundle in, npm ci through the proxy, patch and checks out, contai
   const out = mkdtempSync(join(tmpdir(), "lass-fix-"));
   const steps: string[] = [];
   const r = await runFix({
-    backend: b, prepare: () => b.prepare(true), image: () => b.latestImage("dashboard-lass-dev"), outDir: out, pollMs: 5000,
+    backend: b, prepare: (p) => b.prepare(p), image: () => b.latestImage("dashboard-lass-dev"), outDir: out, pollMs: 5000,
     bundle: async () => {
       const f = join(out, "repo.bundle");
       execFileSync("git", ["-C", REPO, "bundle", "create", f, "HEAD"], { stdio: "ignore" });

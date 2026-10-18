@@ -1,7 +1,12 @@
 /**
  * The fix run (docs/LASS.md 8, 9a; INFRASTRUCTURE.md): Claude Code (Opus) works on a copy of the
  * Dashboard's source inside a fresh, sealed container: rootless gVisor, no Windows folders, no Podman
- * socket, the internet only through the egress proxy. Started only by the user's click.
+ * socket. Started only by the user's click. Two jobs (user decision 2026-10-18):
+ *   1. packages: no Claude, no login; the full egress proxy (npm registry); `npm ci` fills the package
+ *      cache volume lass-npm-cache, emptied first.
+ *   2. fix: Claude with the login, on the network lass-fix, whose only way out is the proxy that allows
+ *      Anthropic's hosts only; packages come from the cache (`npm ci --offline`). A planted instruction
+ *      cannot publish or push anything (no npm registry, no GitHub), whoever's credentials it brings.
  *
  * In:  the committed source at HEAD as a git bundle (no token, no access to GitHub or to this PC's
  *      files), the brief (investigation, user's words, untrusted data marked), and run.sh, written here.
@@ -30,8 +35,8 @@ export interface FixBrief {
 
 export interface FixRunDeps {
   backend: ContainerBackend;
-  /** Makes sure the machine and the egress proxy run; throws with a step for the user otherwise. */
-  prepare: () => Promise<void>;
+  /** Makes sure the machine, the networks and the proxies for these profiles are ready; throws with a step for the user otherwise. */
+  prepare: (profiles: Array<"egress" | "anthropic">) => Promise<void>;
   /** The development image (localhost/dashboard-lass-dev:<commit>), or throws with a step for the user. */
   image: () => Promise<string>;
   /** git bundle of HEAD and its commit id. */
@@ -55,6 +60,21 @@ export interface FixRunResult {
 export const FIX_TIMEOUT_MS = 100 * 60_000;
 const FINISHED = '{"step":"finished"}';
 const OUT_FILES = ["fix.patch", "summary.md", "status.json", "npm-ci.log", "claude.jsonl", "claude.err", "typecheck.log", "unit.log"];
+const DEPS_FILES = ["deps.json", "npm-deps.log"];
+
+/** The packages job's script (no Claude, no login): the cache volume is emptied, then filled from the lock file at HEAD. */
+export const DEPS_SCRIPT = `#!/bin/sh
+# Written by the Dashboard host (LASS fix run, packages step); not by a model.
+set -u
+mkdir -p /work/out
+step() { printf '{"at":"%s","step":"%s"}\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"; }
+step packages
+find /npm-cache -mindepth 1 -delete
+cd /work && git init -q src && cd src && git fetch -q /work/in/repo.bundle HEAD && git checkout -q FETCH_HEAD || { printf '{"npm":-1,"error":"clone"}\\n' > /work/out/deps.json; exit 2; }
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund --cache /npm-cache > /work/out/npm-deps.log 2>&1
+printf '{"npm":%d}\\n' $? > /work/out/deps.json
+step done
+`;
 
 /** The model's command inside the container. Full tools: the boundary is the container (LASS.md 9a). */
 export const CLAUDE_COMMAND = "claude -p --model opus --dangerously-skip-permissions --output-format stream-json --verbose < /work/in/prompt.txt > /work/out/claude.jsonl 2> /work/out/claude.err";
@@ -75,7 +95,8 @@ git config user.name LASS && git config user.email lass@localhost.invalid
 BASE=$(git rev-parse HEAD)
 step npm-ci
 # No install scripts (Electron's binary download among them): the container only typechecks and unit-tests.
-ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund > /work/out/npm-ci.log 2>&1
+# Offline, from the cache the packages job filled: this container cannot reach the npm registry.
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --offline --ignore-scripts --no-audit --no-fund --cache /npm-cache > /work/out/npm-ci.log 2>&1
 NPM=$?
 step claude
 ${claude}
@@ -99,7 +120,7 @@ export function fixPrompt(b: FixBrief): string {
   return [
     "You are LASS, fixing a problem in the Dashboard (this repository). Read CLAUDE.md and the docs it names first, and follow them: doc updates in docs\\, a decision-log entry in docs/PROJECT.md, tests for the fix.",
     "",
-    "Where you are: a sealed Linux container with a copy of the repository at /work/src (branch " + b.branch + "). There is no Windows here: Electron, the e2e tests, the spike, Podman and the host suite cannot run. Run `npm run typecheck` and `node scripts/run-tests.mjs test/unit` (tests that need Windows skip or fail here; say which). Do not commit, do not push, do not use git remotes: the host takes your changes with git diff.",
+    "Where you are: a sealed Linux container with a copy of the repository at /work/src (branch " + b.branch + "). There is no Windows here: Electron, the e2e tests, the spike, Podman and the host suite cannot run. Run `npm run typecheck` and `node scripts/run-tests.mjs test/unit` (tests that need Windows skip or fail here; say which). Do not commit, do not push, do not use git remotes: the host takes your changes with git diff. The only network here is the Claude API: the packages of the current lock file are installed, nothing else can be downloaded, so do not add dependencies.",
     "",
     "Never change: docs/RULES.md (host invariants), spikes/, anything under Build/ or tools/, setup/setup-generator-account.ps1. A patch touching them is refused. Changes to the security core (src/main, src/preload, src/card-runtime, src/filehelper), tests, scripts or dependencies are shown to the user in red: make only those the fix needs.",
     "",
@@ -118,64 +139,76 @@ export function fixPrompt(b: FixBrief): string {
 
 export class FixRunCancelled extends Error {}
 
-/** Runs one fix in a fresh container and saves its results. Always removes the container. */
-export async function runFix(d: FixRunDeps, b: FixBrief, signal?: AbortSignal): Promise<FixRunResult> {
-  const say = d.progress ?? (() => undefined);
-  const check = () => { if (signal?.aborted) throw new FixRunCancelled("cancelled by the user"); };
-  mkdirSync(d.outDir, { recursive: true });
-  say("starting the container machine and the egress proxy");
-  await d.prepare();
-  check();
-  const image = await d.image();
-  const { data, base } = await d.bundle();
-  check();
-  const spec: JobSpec = {
-    name: "lass-fix", image, network: "egress",
-    // The container stays up after the script: the results come out through the container itself
-    // (copyOut needs it running). A model could print "finished" early; that only ends its own run.
-    command: ["sh", "-c", `while [ ! -f /work/in/go ]; do sleep 1; done; sh /work/in/run.sh; echo '${FINISHED}'; exec sleep 86400`],
-    env: { CI: "1", IS_SANDBOX: "1" },
-    resources: { cpu: "1", memory: "2Gi", cpuLimit: "4", memoryLimit: "6Gi" },
-    scratch: ["/home/dev", "/work"],
-    volumes: [{ claim: "lass-claude-config", mountPath: "/claude-config" }],
-  };
-  say("starting the fix container");
-  const id = await d.backend.start(spec);
+interface JobRun { spec: JobSpec; files: FileSet; out: string; keep: string[]; label: string }
+
+/** One job: start, files in, the go marker, wait for "finished", results out. Always removes the container. */
+async function runJob(d: FixRunDeps, j: JobRun, end: number, check: () => void, say: (s: string) => void): Promise<FileSet> {
+  const id = await d.backend.start(j.spec);
   const logLines: string[] = [];
   try {
-    await d.backend.copyIn(id, "/work", {
-      "in/repo.bundle": data,
-      "in/prompt.txt": Buffer.from(fixPrompt(b), "utf8"),
-      "in/run.sh": Buffer.from(runScript(b.branch, d.claudeCommand ?? CLAUDE_COMMAND), "utf8"),
-    });
+    await d.backend.copyIn(id, "/work", j.files);
     await d.backend.copyIn(id, "/work", { "in/go": Buffer.alloc(0) });
-    say("Claude is working on the fix");
-    const end = Date.now() + (d.timeoutMs ?? FIX_TIMEOUT_MS);
     for (;;) {
       check();
       const st = await d.backend.status(id);
-      if (st.state === "exited" || st.state === "gone") throw new Error(`the fix container stopped unexpectedly (${st.state}${st.exitCode !== undefined ? `, exit ${st.exitCode}` : ""})`);
+      if (st.state === "exited" || st.state === "gone") throw new Error(`the ${j.label} container stopped unexpectedly (${st.state}${st.exitCode !== undefined ? `, exit ${st.exitCode}` : ""})`);
       if (Date.now() > end) throw new Error(`the fix run took longer than ${Math.round((d.timeoutMs ?? FIX_TIMEOUT_MS) / 60_000)} minutes`);
       let last = "";
       try { for await (const l of d.backend.logs(id)) last = l; } catch { /* logs are best effort while it runs */ }
       if (last === FINISHED) break;
       const m = /"step":"([^"]{1,60})"/.exec(last);
-      if (m) say(m[1] === "claude" ? "Claude is working on the fix" : m[1] === "check" ? "typecheck and unit tests in the container" : m[1]);
+      if (m) say(m[1] === "claude" ? "Claude is working on the fix" : m[1] === "check" ? "typecheck and unit tests in the container" : m[1] === "packages" ? "installing the packages (without Claude)" : m[1]);
       await new Promise((r) => setTimeout(r, d.pollMs ?? 10_000));
     }
     try { for await (const l of d.backend.logs(id)) logLines.push(l); } catch { /* best effort */ }
-    let out: FileSet = {};
-    try { out = await d.backend.copyOut(id, "/work/out"); } catch (e) { throw new Error(`no results from the fix container: ${(e as Error).message}`); }
-    const get = (n: string) => out[`out/${n}`];
+    let out: FileSet;
+    try { out = await d.backend.copyOut(id, "/work/out"); } catch (e) { throw new Error(`no results from the ${j.label} container: ${(e as Error).message}`); }
     // Only the files the host asked for are kept, under the host's own names.
-    for (const n of OUT_FILES) { const buf = get(n); if (buf) writeFileSync(join(d.outDir, n), buf); }
-    let status: FixRunResult["status"] = {};
-    try { status = JSON.parse(get("status.json")?.toString("utf8") ?? "{}") as FixRunResult["status"]; } catch { status = { error: "unreadable status" }; }
-    const res: FixRunResult = { base, patch: get("fix.patch")?.toString("utf8") ?? "", summary: (get("summary.md")?.toString("utf8") ?? "").slice(0, 20_000), status };
-    writeFileSync(join(d.outDir, "result.json"), JSON.stringify({ base, status, at: new Date().toISOString() }, null, 2));
-    return res;
+    const kept: FileSet = {};
+    for (const n of j.keep) { const buf = out[`out/${n}`]; if (buf) { kept[n] = buf; writeFileSync(join(d.outDir, n), buf); } }
+    return kept;
   } finally {
-    writeFileSync(join(d.outDir, "container.log"), logLines.join("\n"));
+    writeFileSync(join(d.outDir, `${j.out}.log`), logLines.join("\n"));
     await d.backend.stop(id).catch(() => undefined);
   }
+}
+
+/** Runs one fix (packages job, then the fix job) and saves its results. */
+export async function runFix(d: FixRunDeps, b: FixBrief, signal?: AbortSignal): Promise<FixRunResult> {
+  const say = d.progress ?? (() => undefined);
+  const check = () => { if (signal?.aborted) throw new FixRunCancelled("cancelled by the user"); };
+  mkdirSync(d.outDir, { recursive: true });
+  say("starting the container machine and the proxies");
+  await d.prepare(["egress", "anthropic"]);
+  check();
+  const image = await d.image();
+  const { data, base } = await d.bundle();
+  check();
+  const end = Date.now() + (d.timeoutMs ?? FIX_TIMEOUT_MS);
+  // The containers stay up after their script: results come out through the container itself (copyOut
+  // needs it running). A model could print "finished" early; that only ends its own run.
+  const command = (script: string) => ["sh", "-c", `while [ ! -f /work/in/go ]; do sleep 1; done; sh /work/in/${script}; echo '${FINISHED}'; exec sleep 86400`];
+  const common = { image, env: { CI: "1", IS_SANDBOX: "1" }, resources: { cpu: "1", memory: "2Gi", cpuLimit: "4", memoryLimit: "6Gi" }, scratch: ["/home/dev", "/work"] };
+
+  say("installing the packages (without Claude)");
+  const deps = await runJob(d, {
+    label: "packages", out: "packages-container", keep: DEPS_FILES, files: { "in/repo.bundle": data, "in/deps.sh": Buffer.from(DEPS_SCRIPT, "utf8") },
+    spec: { ...common, name: "lass-deps", network: "egress", command: command("deps.sh"), volumes: [{ claim: "lass-npm-cache", mountPath: "/npm-cache" }] },
+  }, end, check, say);
+  let npm: number | undefined;
+  try { npm = (JSON.parse(deps["deps.json"]?.toString("utf8") ?? "{}") as { npm?: number }).npm; } catch { /* below */ }
+  if (npm !== 0) throw new Error(`installing the packages failed (npm exit ${npm ?? "unknown"}); log: ${join(d.outDir, "npm-deps.log")}`);
+  check();
+
+  say("starting the fix container");
+  const out = await runJob(d, {
+    label: "fix", out: "container", keep: OUT_FILES,
+    files: { "in/repo.bundle": data, "in/prompt.txt": Buffer.from(fixPrompt(b), "utf8"), "in/run.sh": Buffer.from(runScript(b.branch, d.claudeCommand ?? CLAUDE_COMMAND), "utf8") },
+    spec: { ...common, name: "lass-fix", network: "anthropic", command: command("run.sh"), volumes: [{ claim: "lass-claude-config", mountPath: "/claude-config" }, { claim: "lass-npm-cache", mountPath: "/npm-cache" }] },
+  }, end, check, say);
+  let status: FixRunResult["status"] = {};
+  try { status = JSON.parse(out["status.json"]?.toString("utf8") ?? "{}") as FixRunResult["status"]; } catch { status = { error: "unreadable status" }; }
+  const res: FixRunResult = { base, patch: out["fix.patch"]?.toString("utf8") ?? "", summary: (out["summary.md"]?.toString("utf8") ?? "").slice(0, 20_000), status };
+  writeFileSync(join(d.outDir, "result.json"), JSON.stringify({ base, status, at: new Date().toISOString() }, null, 2));
+  return res;
 }
