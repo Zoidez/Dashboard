@@ -22,6 +22,8 @@ import { EventEmitter } from "node:events";
 /** Spike harness a CLI approval must come from. 3.10 (2026-10-18): retires approvals made before T10 checked every
  *  tool call (CLI 2.1.293, approved by 3.9, also predates the 2.1.295 fix for tools that register after launch). */
 export const MIN_HARNESS = "3.10";
+/** LASS triage (docs/LASS.md 6) needs the spike's separate T11 verdict, from harness 3.11 or later. */
+export const TRIAGE_MIN_HARNESS = "3.11";
 
 export interface CliApproval {
   schema: 1;
@@ -33,13 +35,18 @@ export interface CliApproval {
   runs: string[];
   failed: string[];
   missing: string[];
+  /** LASS triage verdict (spike T11); absent on records from older spikes. Never affects `status`. */
+  triage?: "approved" | "blocked" | "incomplete";
+  triageHarness?: string;
 }
+
+export type LaunchPurpose = "generator" | "triage";
 
 /** Why a build cannot run; the New card picks its state from this (ARCHITECTURE.md, "Claude card: CLI test states"). */
 export type GateCode = "no-list" | "unreadable" | "untested" | "incomplete" | "blocked" | "old-harness" | "hash-mismatch" | "binary-unreadable" | "version-failed" | "version-mismatch" | "changed-during-check";
 
 export type GateResult =
-  | { ok: true; version: string; sha256: string }
+  | { ok: true; version: string; sha256: string; triage: boolean }
   | { ok: false; code: GateCode; reason: string; record?: CliApproval };
 
 export interface GateOptions {
@@ -157,7 +164,9 @@ export async function verifyCli(opts: GateOptions): Promise<GateResult> {
   // Hash again: the binary must not have changed while --version ran.
   try { if ((await sha256File(opts.exePath)).toLowerCase() !== sha) return { ok: false, code: "changed-during-check", reason: "the CLI binary changed during the check" }; }
   catch (e) { return { ok: false, code: "binary-unreadable", reason: `cannot read the CLI binary: ${(e as Error).message}` }; }
-  return { ok: true, version, sha256: sha };
+  // Triage runs only on a build whose separate T11 verdict is approved by a harness that has T11.
+  const triage = approval.triage === "approved" && typeof approval.triageHarness === "string" && compareVersions(approval.triageHarness, TRIAGE_MIN_HARNESS) >= 0;
+  return { ok: true, version, sha256: sha, triage };
 }
 
 export class GateError extends Error {}
@@ -199,10 +208,12 @@ export class GeneratorGate extends EventEmitter {
     return r;
   }
 
-  /** Verifies, then spawns the CLI. Throws GateError (and aborts everything) if the check fails. */
-  async launch(args: string[], options: SpawnOptions): Promise<ChildProcess> {
+  /** Verifies, then spawns the CLI. Throws GateError (and aborts everything) if the check fails.
+   *  purpose "triage" also needs the build's triage verdict (host invariant 13); a missing one refuses only triage. */
+  async launch(args: string[], options: SpawnOptions, purpose: LaunchPurpose = "generator"): Promise<ChildProcess> {
     const r = await this.check();
     if (!r.ok) throw new GateError(`Generator disabled: ${r.reason}`);
+    if (purpose === "triage" && !r.triage) throw new GateError(`LASS triage is off: CLI ${r.version} has no approved triage verdict from the spike (harness ${TRIAGE_MIN_HARNESS} or later)`);
     const child = spawn(this.opts.exePath, args, { ...options, windowsHide: true });
     this.children.add(child);
     const forget = () => this.children.delete(child);

@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld("dashboardHost", {
   newCardStop(): void { ipcRenderer.send("new:stop"); },
   newCardTestCli(): void { ipcRenderer.send("new:test-cli"); },
   newCardLassCancel(id: unknown): void { ipcRenderer.send("new:lass-cancel", id); },
+  // The LASS bar (LASS.md 7).
+  lassAnswer(id: unknown, text: unknown): void { ipcRenderer.send("lass:answer", id, text); },
+  lassDismiss(id: unknown): void { ipcRenderer.send("lass:dismiss", id); },
 });

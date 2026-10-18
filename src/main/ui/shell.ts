@@ -14,6 +14,7 @@ import { LayoutStore, clampSize } from "../layout.js";
 import type { OptionsStore } from "../options.js";
 import type { FeedService } from "../reports/feeds.js";
 import { THEMES } from "../../shared/theme.js";
+import type { LassBarView } from "../../shared/ui-state.js";
 import type { CardAction, CardFrame, CategoryState, DashboardState, GeneratorView, NewCardRequest, OptionsPatch, OptionsState } from "../../shared/ui-state.js";
 
 export interface ShellDeps {
@@ -45,6 +46,8 @@ export interface ShellDeps {
   activity?: (source: "user" | "host", kind: string, target?: string, data?: Record<string, unknown>) => void;
   /** Help > Something's wrong: opens an investigation with the user's text. */
   report: (text: string) => Promise<{ id: string | null; message: string }>;
+  /** The LASS bar (LASS.md 7): what it shows, the user's answer, Not now / Close. */
+  lass: { view: () => LassBarView; answer: (id: string, text: string) => void; dismiss: (id: string) => void };
 }
 
 const ACTIONS = new Set<CardAction>(["stop", "start", "revoke", "grant"]);
@@ -101,6 +104,13 @@ export class Shell {
       d.generator.start({ text: r.text, target: r.target, preset: r.preset });
     });
     ipcMain.on("new:stop", (e) => { if (fromGrid(e)) { d.activity?.("user", "newcard.stop"); d.generator.stop(); } });
+    // The LASS bar: the user's answer is an instruction to LASS (LASS.md 3), so only the grid window may send it.
+    ipcMain.on("lass:answer", (e, id, text) => {
+      if (!fromGrid(e) || typeof id !== "string" || id.length > 80 || typeof text !== "string" || !text.trim() || text.length > 4000) return;
+      d.activity?.("user", "lass.answer", id, { text });
+      d.lass.answer(id, text);
+    });
+    ipcMain.on("lass:dismiss", (e, id) => { if (fromGrid(e) && typeof id === "string" && id.length < 80) { d.activity?.("user", "lass.dismiss", id); d.lass.dismiss(id); } });
     ipcMain.on("new:lass-cancel", (e, id) => { if (fromGrid(e) && typeof id === "string" && id.length < 80) { d.activity?.("user", "lass.cancel", id); d.generator.lassCancel(id); } });
 
     // Help > Something's wrong (LASS.md 5): only the report window may send, and only text.
@@ -158,7 +168,7 @@ export class Shell {
       ];
       const frames = this.d.layout.arrange(items, (id) => clampSize(host.defaultSize(id)));
       const running = host.cards.size;
-      const state: DashboardState = { frames, summary: `${running} card${running === 1 ? "" : "s"} running`, generator: this.d.generator.view() };
+      const state: DashboardState = { frames, summary: `${running} card${running === 1 ? "" : "s"} running`, generator: this.d.generator.view(), lass: this.d.lass.view() };
       this.d.win.webContents.send("dashboard:state", state);
       this.optionsWin?.webContents.send("options:changed");
       this.updateTray();

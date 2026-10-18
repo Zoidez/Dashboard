@@ -21,7 +21,7 @@ function gateMessage(g: NonNullable<GeneratorView["gate"]>, build?: string): str
   }
 }
 
-export function NewCard({ g, start, stop, testCli, lassCancel }: { g: GeneratorView; start: (r: NewCardRequest) => void; stop: () => void; testCli: () => void; lassCancel: (id: string) => void }) {
+export function NewCard({ g, start, stop, testCli, lassCancel, lassDismiss }: { g: GeneratorView; start: (r: NewCardRequest) => void; stop: () => void; testCli: () => void; lassCancel: (id: string) => void; lassDismiss: (id: string) => void }) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState("new");
   const [preset, setPreset] = useState<"watch-feed" | null>(null);
@@ -59,6 +59,15 @@ export function NewCard({ g, start, stop, testCli, lassCancel }: { g: GeneratorV
           <option value="watch-feed">Watch feed</option>
         </select>
       </div>
+      {g.lassNotice && !g.lass && (
+        <div className="lass-note" role="status">
+          <span>
+            <strong>LASS looked into the failed requests.</strong> {g.lassNotice.summary}
+            {g.lassNotice.userSteps.length > 0 && <ol>{g.lassNotice.userSteps.map((s, i) => <li key={i}>{s}</li>)}</ol>}
+          </span>
+          <button onClick={() => lassDismiss(g.lassNotice!.id)}>Close</button>
+        </div>
+      )}
       {g.lass && target === "new" && (
         <div className="lass-note" role="status">
           <span>LASS is looking into the failed requests for new cards ({g.lass.state}). You can keep using the rest of the Dashboard, and change existing cards.{g.lass.summary ? ` ${g.lass.summary}` : ""}</span>

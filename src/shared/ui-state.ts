@@ -44,6 +44,14 @@ export interface GeneratorView {
   targets: Array<{ cardId: string; name: string }>;
   /** An open LASS investigation of new-card requests (LASS.md 5): the New card refuses new cards until it ends. */
   lass?: { id: string; state: string; summary?: string } | null;
+  /** A finished investigation of new-card requests: its answer and the steps only the user can do (LASS.md 5, 7). */
+  lassNotice?: { id: string; summary: string; userSteps: string[] } | null;
+}
+
+/** The LASS bar at the bottom of the window (LASS.md 7). */
+export interface LassBarView {
+  asking: { id: string; title: string; summary?: string } | null;
+  notice: { id: string; summary: string; userSteps: string[]; closeReason: string; function: string } | null;
 }
 
 export interface NewCardRequest { text: string; target: string; preset: "watch-feed" | null }
@@ -52,6 +60,7 @@ export interface DashboardState {
   frames: CardFrame[];
   summary: string;
   generator: GeneratorView;
+  lass?: LassBarView;
 }
 
 /**

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEv
 import { createRoot } from "react-dom/client";
 import type { CardAction, CardFrame, DashboardState, FrameRect, LayoutUpdate, NewCardRequest, PermissionCategory } from "../shared/ui-state.js";
 import { NewCard } from "./new-card.js";
+import { LassBar } from "./lass-bar.js";
 import { Toggle } from "./toggle.js";
 
 declare global {
@@ -22,6 +23,8 @@ declare global {
       newCardStop(): void;
       newCardTestCli(): void;
       newCardLassCancel(id: string): void;
+      lassAnswer(id: string, text: string): void;
+      lassDismiss(id: string): void;
     };
   }
 }
@@ -267,7 +270,7 @@ function App() {
           <section className="frame newcard-frame" data-card="new" style={{ gridColumn: "span 32", gridRow: "span 46" }}>
             <div className="bar"><span className="name">New</span><span className="state">{state.generator.gate?.ok ? `Claude Code ${state.generator.gate.version}` : ""}</span></div>
             <div className="body newcard-body">
-              <NewCard g={state.generator} start={(r) => host.newCardStart(r)} stop={() => host.newCardStop()} testCli={() => host.newCardTestCli()} lassCancel={(id) => host.newCardLassCancel(id)} />
+              <NewCard g={state.generator} start={(r) => host.newCardStart(r)} stop={() => host.newCardStop()} testCli={() => host.newCardTestCli()} lassCancel={(id) => host.newCardLassCancel(id)} lassDismiss={(id) => host.lassDismiss(id)} />
             </div>
           </section>
           {frames.map((f) => (
@@ -308,6 +311,7 @@ function App() {
           ))}
         </div>
       </main>
+      <LassBar v={state.lass} answer={(id, t) => host.lassAnswer(id, t)} dismiss={(id) => host.lassDismiss(id)} />
       {menu && menuFrame && (
         <PermissionMenu frame={menuFrame} at={menu} menuRef={menuRef} onSwitch={(c, on) => host.cardPermission(menuFrame.cardId, c, on)} />
       )}

@@ -103,3 +103,13 @@ button.grant:hover { filter: brightness(1.08); border-color: var(--ok); }
 .perm-note { font-size: .846rem; color: var(--muted); }
 .perm-row.off .perm-note { color: var(--warn); }
 .perm-row.none { opacity: .7; }
+
+/* The LASS bar (LASS.md 7): below the grid, never over a card. */
+.lass-bar { flex: 0 0 auto; padding: 10px 16px; border-top: 2px solid var(--accent); background: var(--surface); display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
+.lass-bar p { margin: 0; }
+.lass-bar ol { margin: 0; padding-left: 20px; }
+.lass-bar .lass-note-text { color: var(--muted); }
+.lass-bar .lass-row { display: flex; gap: 8px; align-items: flex-end; }
+.lass-bar .lass-row.end { justify-content: flex-end; }
+.lass-bar textarea { flex: 1; resize: none; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; }
+.newcard .lass-note ol { margin: 4px 0 0; padding-left: 20px; }

@@ -33,7 +33,8 @@ import { Shell } from "./ui/shell.js";
 import { ThemeService } from "./ui/theme-service.js";
 import { ActivityLog } from "./lass/activity.js";
 import { PromptHistory } from "./lass/prompts.js";
-import { Investigations } from "./lass/investigations.js";
+import { DailyBudget } from "./lass/budget.js";
+import { LassService } from "./lass/service.js";
 import { verifyCli } from "./generator/cli-gate.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
@@ -71,19 +72,11 @@ app.on("web-contents-created", (_e, wc) => {
 
 const audit = new AuditLog(paths.audit);
 
-// LASS phase 1 (docs/LASS.md): activity log, prompt history, investigations.
+// LASS (docs/LASS.md): activity log and prompt history here; triage and investigations once the gate exists.
 const activity = new ActivityLog(join(paths.data, "activity"));
 audit.onWrite = (e) => activity.write("host", `audit.${e.kind}`, e.cardId, { detail: e.detail });
 process.on("uncaughtExceptionMonitor", (err) => activity.write("host", "error.uncaught", undefined, { message: String(err?.message ?? err), stack: String(err?.stack ?? "").slice(0, 2000) }));
 const prompts = new PromptHistory(join(paths.data, "lass", "prompts.jsonl"));
-const investigations = new Investigations(join(paths.data, "lass", "investigations"), {
-  // Rechecking (LASS.md 5): a repeat failure is gone once a new-card request succeeded after it.
-  stillTrue: async (inv) => {
-    if (inv.signal.kind !== "repeat-failure") return true;
-    const last = inv.signal.requests?.[0] ? prompts.get(inv.signal.requests[0]) : undefined;
-    return !(last && prompts.all().some((x) => x.at > last.at && x.kind === "new" && x.outcome === "installed"));
-  },
-});
 const approvals = new ApprovalStore(paths.approvals);
 const storage = new CardStorage(paths.config);
 const files = new FileHelper(join(distDir, "filehelper", "main.js"));
@@ -124,6 +117,18 @@ const gateOpts = () => ({
 });
 const gate = new GeneratorGate(gateOpts());
 const currentBuildHash = buildHash(distDir);
+// LASS triage (phase 2): the smallest model through the same gate, purpose "triage" (spike T11 verdict).
+const lass = new LassService({
+  activity, prompts, budget: new DailyBudget(join(paths.data, "lass", "budget.json")),
+  launchTriage: (args, opts) => gate.launch(args, opts, "triage"), kill: (c) => gate.kill(c),
+  hostDir: join(paths.generator, "host"), configDir: join(paths.data, "claude"), lassDir: join(paths.data, "lass"),
+  hostState: () => {
+    const g = gate.state;
+    const suite = hostSuiteProblem(join(paths.generator, "host-suite.json"), currentBuildHash);
+    return `generator ${g.enabled ? `on (CLI ${g.version})` : `off: ${g.reason}`}; security test record: ${suite ?? "passed for this build"}`;
+  },
+});
+const investigations = lass.investigations;
 activity.write("host", "start", undefined, { build: currentBuildHash.slice(0, 12), packaged: app.isPackaged });
 // The security test: shipped beside the packaged app (resources/spikes), or from the project folder in a dev run.
 const spikePath = app.isPackaged ? join(process.resourcesPath, "spikes", "spike1-cli.ps1") : join(app.getAppPath(), "spikes", "spike1-cli.ps1");
@@ -146,7 +151,13 @@ function generatorView(): GeneratorView {
     ...[...host.stopped.entries()].filter(([id]) => host!.startable(id)).map(([cardId, s]) => ({ cardId, name: s.name })),
   ].filter((t) => !t.cardId.startsWith("feed-")).sort((a, b) => a.name.localeCompare(b.name)) : [];
   const inv = investigations.blocking("newcard.create");
-  return { ...p, build: build ?? undefined, testing, canTest: existsSync(spikePath), targets, lass: inv ? { id: inv.id, state: inv.state, summary: inv.summary } : null };
+  const notice = lass.view().notice;
+  return {
+    ...p, build: build ?? undefined, testing, canTest: existsSync(spikePath), targets,
+    lass: inv ? { id: inv.id, state: inv.state, summary: inv.summary } : null,
+    // A finished investigation of new-card requests answers on the New card (LASS.md 5).
+    lassNotice: notice && notice.function === "newcard.create" ? { id: notice.id, summary: notice.summary, userSteps: notice.userSteps } : null,
+  };
 }
 
 /** "Test the new CLI version": the host runs its own security test in a visible PowerShell window. */
@@ -328,10 +339,8 @@ app.whenReady().then(async () => {
       finished: (id, outcome, extra) => {
         prompts.outcome(id, outcome, extra);
         activity.write("generator", "newcard.outcome", extra.cardId, { request: id, outcome });
-        // Repeat detection (LASS.md 4): the host pre-filter; the same-card check by the triage model
-        // follows in phase 2, and only then an investigation opens. Until then the result is logged.
-        const pf = prompts.preFilter(id);
-        activity.write("lass", "prefilter", id, { pass: pf.pass, reason: pf.reason, requests: pf.requests.map((r) => r.id) });
+        // Repeat detection (LASS.md 4): pre-filter, same-card check, maybe an investigation. In the background.
+        void lass.afterRequest(id).then(() => shell?.push());
       },
       previous: (id) => prompts.previousFailed(id).map((r) => ({ at: r.at, text: r.text, outcome: r.outcome ?? "failed", ...(r.reply ? { reply: r.reply } : {}) })),
     },
@@ -362,18 +371,19 @@ app.whenReady().then(async () => {
     report: async (text) => {
       const inv = investigations.open({ kind: "user-report", function: "general", userText: text });
       if (!inv) return { id: null, message: "An earlier report is still being looked into, so this one was not added. Send it again when that one is closed." };
-      await new Promise((r) => setTimeout(r, 300));               // the queue runs at once
-      const now = investigations.get(inv.id)!;
-      if (now.state === "closed" && now.closeReason?.startsWith("failed: triage is not built"))
-        return { id: inv.id, message: `Recorded as ${inv.id}.\n\nLASS cannot look into it yet: its triage step is the next phase of development. Your report is kept in Build\\data\\lass\\investigations.` };
-      return { id: inv.id, message: `LASS is looking into it (${inv.id}). The rest of the Dashboard stays usable.` };
+      return { id: inv.id, message: `LASS is looking into it (${inv.id}). Its answer appears at the bottom of the Dashboard window; the rest of the Dashboard stays usable.` };
+    },
+    lass: {
+      view: () => lass.view(),
+      answer: (id, text) => { investigations.answer(id, text); shell?.push(); },
+      dismiss: (id) => { const i = investigations.get(id); if (i?.state === "asking-user") investigations.cancel(id); else investigations.acknowledge(id); shell?.push(); },
     },
   });
   shell.createTray(join(distDir, "assets", "icon.png"));
   if (options.general.startWithWindows) shell.applyLoginItem();
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
-  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate, themes, activity, prompts, investigations };
+  (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate, themes, activity, prompts, investigations, lass };
 
   await w.loadFile(join(distDir, "renderer", "index.html"));
   await feeds.start();
