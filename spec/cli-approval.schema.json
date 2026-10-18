@@ -30,7 +30,11 @@
         "decidedAt": { "type": "string", "description": "UTC time the record was computed (ISO 8601)." },
         "runs":      { "type": "array", "items": { "type": "string" }, "description": "Qualifying spike runs (results folder names)." },
         "failed":    { "type": "array", "items": { "type": "string" }, "description": "Required checks that FAILED in a qualifying run (\"<id>|<check>\")." },
-        "missing":   { "type": "array", "items": { "type": "string" }, "description": "Required checks that have not PASSED in any qualifying run yet." }
+        "missing":   { "type": "array", "items": { "type": "string" }, "description": "Required checks that have not PASSED in any qualifying run yet." },
+        "triage":        { "enum": ["approved", "blocked", "incomplete"], "description": "LASS triage configuration (spike T11, harness 3.11+; docs/LASS.md 6): a separate verdict. Triage runs only on a build whose triage is approved; this field never affects status (the generator)." },
+        "triageHarness": { "type": "string", "pattern": "^\\d+(\\.\\d+)*$", "description": "Minimum harness version whose runs counted for the triage verdict." },
+        "triageFailed":  { "type": "array", "items": { "type": "string" }, "description": "Triage checks that FAILED in a qualifying run." },
+        "triageMissing": { "type": "array", "items": { "type": "string" }, "description": "Triage checks that have not PASSED in any qualifying run yet." }
       },
       "additionalProperties": false
     }

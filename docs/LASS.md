@@ -146,7 +146,7 @@ queued -> rechecking -> triage -> (identified | asking-user) -> fixing -> verify
   - the last 10 minutes of activity events for the blocked function
   - the current gate and host-suite state
   - Card error messages and Claude replies are marked "untrusted data" inside it.
-- **Lockdown:** same CLI gate and approved build as the generator. No tools at all (the exact flag for an empty tool set has not been verified and must be spike-tested), no MCP, no session reuse, bundle passed in the prompt.
+- **Lockdown:** same CLI gate and approved build as the generator. No tools at all, no MCP, no session reuse, bundle passed in the prompt. Flags (spike v3.11, test T11): `--restricted --tools "" --disallowedTools mcp__* --strict-mcp-config` (empty MCP config) `--settings` (denies everything) `--permission-mode dontAsk --permission-prompts none --disable-slash-commands --max-turns 1 --model haiku`. T11 checks, in a folder with hostile project files: flags accepted, run completes, no tools and no MCP tools in the session, Haiku answers, no tool call when asked for a shell, a read and a write (also as a planted instruction inside an untrusted-data block), nothing written, the secret never shown, hooks and CLAUDE.md without effect. The verdict is separate (`triage` in the tested list): triage runs only on a build whose triage verdict is "approved", and a failing T11 never affects the generator.
 - **Output:** JSON only, validated by the host:
 
 ```json
