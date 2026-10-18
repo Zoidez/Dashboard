@@ -9,6 +9,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ActivityEvent, ActivityLog } from "./activity.js";
 import type { DailyBudget } from "./budget.js";
+import type { FixBrief } from "./fix-run.js";
 import { Investigations, type CloseReason, type Investigation } from "./investigations.js";
 import type { PromptHistory, PromptRecord } from "./prompts.js";
 import { parseSameCard, parseTriage, runTriage, sameCardPrompt, triagePrompt, type RequestForTriage, type TriageAnswer } from "./triage.js";
@@ -99,6 +100,22 @@ export class LassService {
       : "the user reported a problem through Help > Something's wrong";
     const userText = [inv.signal.userText, inv.userAnswer].filter(Boolean).join("\n\n") || undefined;
     return { signal, ...(userText ? { userText } : {}), requests: reqs.map(toTriage), activity, hostState: this.d.hostState() };
+  }
+
+  /** The fix run's brief (LASS.md 8): the same bundle as triage, as text; the user's words separate. */
+  fixBrief(inv: Investigation): FixBrief {
+    const b = this.bundle(inv);
+    const evidence = [
+      ...b.requests.map((r, i) => `Request ${i + 1} (${r.at.slice(0, 16).replace("T", " ")} UTC, outcome ${r.outcome}):\n${r.text.slice(0, 4000)}${r.reply ? `\nGenerator's last reply:\n${r.reply.slice(0, 4000)}` : ""}`),
+      `Recent activity of the Dashboard (newest last):\n${b.activity}`,
+    ].join("\n\n");
+    return {
+      invId: inv.id, branch: `lass/${inv.id}`,
+      problem: `Signal: ${b.signal}.\nHost state: ${b.hostState}.\nInvestigation ${inv.id}, opened ${inv.opened}.`,
+      ...(inv.summary ? { triageSummary: inv.summary } : {}),
+      ...(b.userText ? { userText: b.userText } : {}),
+      evidence,
+    };
   }
 
   /** Triage (LASS.md 6), and what its answer means for the investigation. */

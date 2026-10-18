@@ -35,7 +35,9 @@ import { ActivityLog } from "./lass/activity.js";
 import { PromptHistory } from "./lass/prompts.js";
 import { DailyBudget } from "./lass/budget.js";
 import { LassService } from "./lass/service.js";
-import { launcherExe, readBounds, restartIntoPending, saveBounds, setPending, writeReady } from "./launcher.js";
+import { LassFixes } from "./lass/fixes.js";
+import { installedPodman, PodmanBackend } from "./containers/podman.js";
+import { launcherExe, readBounds, readBuildState, restartIntoPending, saveBounds, setPending, writeReady } from "./launcher.js";
 import { verifyCli } from "./generator/cli-gate.js";
 
 // ---------- before ready: instance paths, scheme, sandbox ----------
@@ -119,8 +121,9 @@ const gateOpts = () => ({
 const gate = new GeneratorGate(gateOpts());
 const currentBuildHash = buildHash(distDir);
 // LASS triage (phase 2): the smallest model through the same gate, purpose "triage" (spike T11 verdict).
+const lassBudget = new DailyBudget(join(paths.data, "lass", "budget.json"));
 const lass = new LassService({
-  activity, prompts, budget: new DailyBudget(join(paths.data, "lass", "budget.json")),
+  activity, prompts, budget: lassBudget,
   launchTriage: (args, opts) => gate.launch(args, opts, "triage"), kill: (c) => gate.kill(c),
   hostDir: join(paths.generator, "host"), configDir: join(paths.data, "claude"), lassDir: join(paths.data, "lass"),
   hostState: () => {
@@ -130,6 +133,24 @@ const lass = new LassService({
   },
 });
 const investigations = lass.investigations;
+// LASS phase 4 (LASS.md 8): fix runs in the sealed container, each step on the user's click. The source
+// is the git repository Build\ sits in; the container side is the Podman backend (INFRASTRUCTURE.md O1).
+const repoDir = dirname(resolve(paths.root));
+const podman = installedPodman(paths.data);
+const podBackend = podman ? new PodmanBackend(podman) : null;
+let restartIntoFix: (() => void) | null = null;
+const fixes = new LassFixes({
+  investigations, budget: lassBudget, activity, lassDir: join(paths.data, "lass"), root: paths.root,
+  repo: existsSync(join(repoDir, ".git")) && existsSync(join(repoDir, "package.json")) ? repoDir : null,
+  container: podBackend
+    ? { backend: podBackend, prepare: () => podBackend.prepare(true), image: () => podBackend.latestImage("dashboard-lass-dev") }
+    : { unavailable: "Podman is not installed for this instance (setup\\install-podman.ps1, INFRASTRUCTURE.md)" },
+  brief: (inv) => lass.fixBrief(inv),
+  setPending: (id) => setPending(paths.root, id),
+  restart: () => restartIntoFix?.(),
+  currentBuild: () => readBuildState(paths.root).current,
+  changed: () => shell?.push(),
+});
 activity.write("host", "start", undefined, { build: currentBuildHash.slice(0, 12), packaged: app.isPackaged });
 // The security test: shipped beside the packaged app (resources/spikes), or from the project folder in a dev run.
 const spikePath = app.isPackaged ? join(process.resourcesPath, "spikes", "spike1-cli.ps1") : join(app.getAppPath(), "spikes", "spike1-cli.ps1");
@@ -352,6 +373,8 @@ app.whenReady().then(async () => {
       finished: (id, outcome, extra) => {
         prompts.outcome(id, outcome, extra);
         activity.write("generator", "newcard.outcome", extra.cardId, { request: id, outcome });
+        // A fixed build being verified: a successful new-card request answers it (LASS.md 5).
+        if (prompts.get(id)?.kind === "new") fixes.afterRequest(outcome);
         // Repeat detection (LASS.md 4): pre-filter, same-card check, maybe an investigation. In the background.
         void lass.afterRequest(id).then(() => shell?.push());
       },
@@ -388,7 +411,18 @@ app.whenReady().then(async () => {
       return { id: inv.id, message: `LASS is looking into it (${inv.id}). Its answer appears at the bottom of the Dashboard window; the rest of the Dashboard stays usable.` };
     },
     lass: {
-      view: () => lass.view(),
+      view: () => ({ ...lass.view(), fix: fixes.view() }),
+      fix: (id, action, confirmedRed) => {
+        switch (action) {
+          case "start": return fixes.start(id);
+          case "test": return fixes.test(id, confirmedRed);
+          case "install": return fixes.install(id);
+          case "reject": return fixes.reject(id);
+          case "fixed": return fixes.verify(id, true);
+          case "not-fixed": return fixes.verify(id, false);
+        }
+      },
+      patch: (id) => fixes.patch(id),
       answer: (id, text) => { investigations.answer(id, text); shell?.push(); },
       dismiss: (id) => { const i = investigations.get(id); if (i?.state === "asking-user") investigations.cancel(id); else investigations.acknowledge(id); shell?.push(); },
     },
@@ -398,8 +432,10 @@ app.whenReady().then(async () => {
 
   // Main-process-only handle for the automated tests (Playwright evaluates in this process).
   (globalThis as Record<string, unknown>).__dashboard = { host, broker, audit, approvals, paths, files, feeds, options, installFeedCards, shell, layout: layoutStore, win: w, pipeline: pl, canvas: cv, gate, themes, activity, prompts, investigations, lass,
-    // LASS phase 4 uses this after the user approves a rollout.
-    update: { setPending: (id: string) => setPending(paths.root, id), restart: () => { restartIntoPending(paths.root, w.isDestroyed() ? null : w.getBounds()); activity.write("host", "update.restart"); app.quit(); } } };
+    fixes,
+    update: { setPending: (id: string) => setPending(paths.root, id), restart: () => restartIntoFix?.() } };
+  // Install (LASS.md 8): the launcher waits for this process to exit, starts the pending build and rolls back if it fails.
+  restartIntoFix = () => { restartIntoPending(paths.root, w.isDestroyed() ? null : w.getBounds()); activity.write("host", "update.restart"); app.quit(); };
 
   await w.loadFile(join(distDir, "renderer", "index.html"));
   await feeds.start();
@@ -407,6 +443,7 @@ app.whenReady().then(async () => {
   if (existsSync(gateOpts().exePath)) gate.startWatching();
   void pl.refreshGate();
   investigations.on("change", (i) => { activity.write("lass", "investigation", i.id, { state: i.state, closeReason: i.closeReason }); shell?.push(); });
+  fixes.afterStart();
   investigations.start();
   shell.push();
 });

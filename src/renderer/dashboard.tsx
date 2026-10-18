@@ -25,6 +25,8 @@ declare global {
       newCardLassCancel(id: string): void;
       lassAnswer(id: string, text: string): void;
       lassDismiss(id: string): void;
+      lassFix(id: string, action: string, confirmedRed: boolean): Promise<string | null>;
+      lassPatch(id: string): Promise<string>;
     };
   }
 }
@@ -311,7 +313,7 @@ function App() {
           ))}
         </div>
       </main>
-      <LassBar v={state.lass} answer={(id, t) => host.lassAnswer(id, t)} dismiss={(id) => host.lassDismiss(id)} />
+      <LassBar v={state.lass} answer={(id, t) => host.lassAnswer(id, t)} dismiss={(id) => host.lassDismiss(id)} fx={{ fix: (id, a, r) => host.lassFix(id, a, r), patch: (id) => host.lassPatch(id) }} />
       {menu && menuFrame && (
         <PermissionMenu frame={menuFrame} at={menu} menuRef={menuRef} onSwitch={(c, on) => host.cardPermission(menuFrame.cardId, c, on)} />
       )}

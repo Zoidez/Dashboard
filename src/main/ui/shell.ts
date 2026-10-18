@@ -47,8 +47,16 @@ export interface ShellDeps {
   /** Help > Something's wrong: opens an investigation with the user's text. */
   report: (text: string) => Promise<{ id: string | null; message: string }>;
   /** The LASS bar (LASS.md 7): what it shows, the user's answer, Not now / Close. */
-  lass: { view: () => LassBarView; answer: (id: string, text: string) => void; dismiss: (id: string) => void };
+  lass: {
+    view: () => LassBarView; answer: (id: string, text: string) => void; dismiss: (id: string) => void;
+    /** LASS phase 4 (LASS.md 8): the user's clicks on a fix; returns a reason when the step cannot run. */
+    fix: (id: string, action: FixAction, confirmedRed: boolean) => string | null;
+    patch: (id: string) => string;
+  };
 }
+
+export type FixAction = "start" | "test" | "install" | "reject" | "fixed" | "not-fixed";
+const FIX_ACTIONS = new Set<string>(["start", "test", "install", "reject", "fixed", "not-fixed"]);
 
 const ACTIONS = new Set<CardAction>(["stop", "start", "revoke", "grant"]);
 const CATEGORIES = new Set<string>(PERMISSION_CATEGORIES);
@@ -75,7 +83,7 @@ export class Shell {
 
   constructor(private readonly d: ShellDeps) {
     const w = d.win;
-    const fromGrid = (e: IpcMainEvent) => e.sender === w.webContents;
+    const fromGrid = (e: IpcMainEvent | IpcMainInvokeEvent) => e.sender === w.webContents;
     ipcMain.on("dashboard:ready", (e) => { if (fromGrid(e)) this.push(); });
     ipcMain.on("dashboard:rects", (e, rects) => { if (fromGrid(e)) d.host()?.applyRects(rects); });
     ipcMain.on("dashboard:layout", (e, update) => {
@@ -111,6 +119,15 @@ export class Shell {
       d.lass.answer(id, text);
     });
     ipcMain.on("lass:dismiss", (e, id) => { if (fromGrid(e) && typeof id === "string" && id.length < 80) { d.activity?.("user", "lass.dismiss", id); d.lass.dismiss(id); } });
+    // Every fix step is a click in the grid window (LASS.md 8): start, test on this PC, install, reject, confirm.
+    ipcMain.handle("lass:fix", async (e, id, action, confirmedRed) => {
+      if (!fromGrid(e) || typeof id !== "string" || id.length > 80 || typeof action !== "string" || !FIX_ACTIONS.has(action)) return "refused";
+      d.activity?.("user", "lass.fix", id, { action, confirmedRed: confirmedRed === true });
+      const r = d.lass.fix(id, action as FixAction, confirmedRed === true);
+      this.push();
+      return r;
+    });
+    ipcMain.handle("lass:patch", async (e, id) => (fromGrid(e) && typeof id === "string" && id.length <= 80 ? d.lass.patch(id) : ""));
     ipcMain.on("new:lass-cancel", (e, id) => { if (fromGrid(e) && typeof id === "string" && id.length < 80) { d.activity?.("user", "lass.cancel", id); d.generator.lassCancel(id); } });
 
     // Help > Something's wrong (LASS.md 5): only the report window may send, and only text.

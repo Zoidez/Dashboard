@@ -1,9 +1,11 @@
 // Runs the host security suite (TESTPLAN part A) on the current build and, only if every test
-// passed, writes Build/data/generator/host-suite.json for this build's hash. The validator refuses
-// to approve cards from a build without a matching record (VALIDATOR.md).
+// passed, records this build's hash in Build/data/generator/host-suite.json. The validator refuses
+// to approve cards from a build without a matching record (VALIDATOR.md). Schema 2 (LASS phase 4):
+// records of earlier builds stay (newest first, at most 5), so testing a LASS fix's build does not
+// void the record of the build that is running.
 //   node scripts/record-host-suite.mjs [--instance=Build]
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { ensureProjectNode } from "./project-node.mjs";
@@ -27,9 +29,16 @@ for (const [name, cmd] of suites) {
 // Hash the build exactly as the app does (src/main/generator/host-suite.ts, bundled in dist/main).
 const require = createRequire(import.meta.url);
 require("tsx/cjs");
-const { buildHash } = require("../src/main/generator/host-suite.ts");
+const { buildHash, recordedHashes, MAX_RECORDS } = require("../src/main/generator/host-suite.ts");
 const hash = buildHash(resolve("dist"));
 const out = join(instance, "data", "generator", "host-suite.json");
 mkdirSync(join(instance, "data", "generator"), { recursive: true });
-writeFileSync(out, JSON.stringify({ schema: 1, buildHash: hash, passedAt: new Date().toISOString(), suites: suites.map((s) => s[0]) }, null, 2));
-console.log(`\nAll security suites passed. Recorded build ${hash.slice(0, 12)}… in ${out}`);
+let earlier = [];
+if (recordedHashes(out)) {
+  const old = JSON.parse(readFileSync(out, "utf8"));
+  earlier = old.schema === 2 ? old.records : [{ buildHash: old.buildHash, passedAt: old.passedAt, suites: old.suites }];
+}
+const records = [{ buildHash: hash, passedAt: new Date().toISOString(), suites: suites.map((s) => s[0]) }, ...earlier.filter((r) => r.buildHash !== hash)].slice(0, MAX_RECORDS);
+writeFileSync(out + ".tmp", JSON.stringify({ schema: 2, records }, null, 2));
+renameSync(out + ".tmp", out);
+console.log(`\nAll security suites passed. Recorded build ${hash.slice(0, 12)}… in ${out} (${records.length} build${records.length === 1 ? "" : "s"} on record)`);

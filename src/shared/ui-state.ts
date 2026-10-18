@@ -52,6 +52,34 @@ export interface GeneratorView {
 export interface LassBarView {
   asking: { id: string; title: string; summary?: string } | null;
   notice: { id: string; summary: string; userSteps: string[]; closeReason: string; function: string } | null;
+  /** LASS phase 4: an identified problem, a fix in progress, or a fix to confirm (LASS.md 8). */
+  fix?: LassFixView | null;
+}
+
+/** A fix as the LASS bar shows it. Summaries and file reasons from the fix run are model text: plain text only. */
+export interface LassFixView {
+  id: string;
+  state: "identified" | "fixing" | "verifying";
+  /** fixing: container, review, testing, ready, installing */
+  stage?: string;
+  progress?: string;
+  /** Triage's summary of the problem. */
+  summary?: string;
+  error?: string;
+  /** Fix runs left today; why fix runs are unavailable on this PC, if they are. */
+  left: number;
+  unavailable?: string;
+  /** Changed files, security-relevant first (the host's reading of the patch). */
+  files?: Array<{ path: string; change: string; from?: string; security: boolean; why?: string }>;
+  refused?: string[];
+  added?: number;
+  removed?: number;
+  /** Exit codes inside the container (0 = passed). */
+  checks?: { npmCi?: number; claude?: number; typecheck?: number; unit?: number };
+  build?: string;
+  branch?: string;
+  /** The fix run's own description. */
+  fixSummary?: string;
 }
 
 export interface NewCardRequest { text: string; target: string; preset: "watch-feed" | null }

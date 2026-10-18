@@ -18,6 +18,12 @@ export interface RunResult { code: number | null; stdout: Buffer; stderr: string
 export type Runner = (args: string[], opts?: { stdin?: Buffer; timeoutMs?: number }) => Promise<RunResult>;
 
 const ID = /^job-[a-z][a-z0-9-]{0,30}[a-z0-9]-[0-9a-f]{8}$/;
+/** The Podman machine set up by setuperify-podman.ps1 (option A, INFRASTRUCTURE.md). */
+export const MACHINE = "dashboard";
+export const EGRESS_POD = "lass-egress";
+
+/** A problem only the user can solve (shown as a step in the LASS bar). */
+export class UserStepError extends Error {}
 
 export interface PodmanOptions {
   /** Build\data\podman */
@@ -86,6 +92,30 @@ export class PodmanBackend implements ContainerBackend {
   private check(id: JobId): void { if (!ID.test(id)) throw new Error("unknown job id"); }
   private yamlOf(id: JobId): string { return join(this.jobsDir, `${id}.yaml`); }
   private ctr(id: JobId): string { return `${id}-main`; }
+
+  /** Starts the machine if it is stopped and, for egress jobs, the egress proxy pod (both set up once by the user). */
+  async prepare(egress: boolean): Promise<void> {
+    const m = await this.run(["machine", "inspect", MACHINE, "--format", "{{.State}}"]);
+    if (m.code !== 0) throw new UserStepError(`The Podman machine "${MACHINE}" is not set up: run setup\\verify-podman.ps1 once (INFRASTRUCTURE.md).`);
+    if (m.stdout.toString("utf8").trim().toLowerCase() !== "running") await this.pm(["machine", "start", MACHINE], { timeoutMs: 300_000 });
+    if (!egress) return;
+    const p = await this.run(["pod", "inspect", EGRESS_POD, "--format", "{{.State}}"]);
+    if (p.code !== 0) throw new UserStepError("The egress proxy is not set up: run setup\\lass-dev.ps1 once in PowerShell (it builds the container images and starts the proxy).");
+    if (p.stdout.toString("utf8").trim().toLowerCase() !== "running") await this.pm(["pod", "start", EGRESS_POD], { timeoutMs: 120_000 });
+  }
+
+  /** The newest local image of a recipe (localhost/<name>:<git commit>), preferring builds from committed recipes. */
+  async latestImage(name: string): Promise<string> {
+    if (!/^[a-z][a-z0-9-]{0,40}$/.test(name)) throw new Error("bad image name");
+    const out = await this.pm(["images", "--format", "json", "--filter", `reference=localhost/${name}`]);
+    let list: Array<{ Names?: string[]; Created?: number }> = [];
+    try { list = JSON.parse(out.toString("utf8") || "[]") as typeof list; } catch { /* none */ }
+    const refs = list.flatMap((i) => (i.Names ?? []).map((n) => ({ n, t: Number(i.Created) || 0 })))
+      .filter((r) => new RegExp(`^localhost/${name}:[0-9a-f]{12}(-dirty)?$`).test(r.n))
+      .sort((a, b) => Number(a.n.endsWith("-dirty")) - Number(b.n.endsWith("-dirty")) || b.t - a.t);
+    if (!refs.length) throw new UserStepError(`The container image ${name} is not built: run setup\\lass-dev.ps1 once in PowerShell.`);
+    return refs[0].n;
+  }
 
   async start(spec: JobSpec): Promise<JobId> {
     validateSpec(spec);

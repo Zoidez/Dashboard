@@ -3,7 +3,8 @@
 //   3. copied into Build/app/<build-id>/ (id = first 12 hex of the SHA-256 of its app.asar)
 //   4. Build/data/current-build.json: the new build becomes current (the old current becomes previous),
 //      or with --pending it becomes pending: the launcher tries it on the next start and rolls back if it
-//      does not report ready with a matching security-test record.
+//      does not report ready with a matching security-test record. With --install-only the state is not
+//      touched (LASS phase 4: a tested fix becomes pending only on the user's Install click).
 //   5. the launcher Build/Dashboard.exe is compiled (launcher/Launcher.cs).
 // A running Dashboard never blocks this: it runs from another build's folder. Build/data/ and
 // Build/ClaudeExchange/ are never touched except current-build.json. Builds other than current,
@@ -41,6 +42,7 @@ const run = (cmd) => new Promise((done) => {
 
 const instance = resolve(process.argv.find((a) => a.startsWith("--instance="))?.slice(11) ?? "Build");
 const asPending = process.argv.includes("--pending");
+const installOnly = process.argv.includes("--install-only");
 if (!existsSync(join(instance, "data")) && !existsSync(join(instance, "ClaudeExchange"))) fail(`${instance} does not look like a Dashboard instance`);
 const appRoot = join(instance, "app");
 const ID = /^[0-9a-f]{12}$/;
@@ -66,24 +68,31 @@ let state = {};
 try { state = JSON.parse(readFileSync(stateFile, "utf8")); } catch { /* first side-by-side build */ }
 const clean = (v) => (typeof v === "string" && ID.test(v) ? v : undefined);
 const cur = clean(state.current), prev = clean(state.previous);
-const next = asPending
-  ? { current: cur, previous: prev, pending: id }
-  : { current: id, previous: cur && cur !== id ? cur : prev };
+const next = installOnly
+  ? { current: cur, previous: prev, pending: clean(state.pending) }
+  : asPending
+    ? { current: cur, previous: prev, pending: id }
+    : { current: id, previous: cur && cur !== id ? cur : prev };
 for (const k of Object.keys(next)) if (!next[k]) delete next[k];
-writeFileSync(stateFile + ".tmp", JSON.stringify(next));
-renameSync(stateFile + ".tmp", stateFile);
+if (!installOnly) {
+  writeFileSync(stateFile + ".tmp", JSON.stringify(next));
+  renameSync(stateFile + ".tmp", stateFile);
+}
 
 // The launcher. It runs only for moments (start, restart), so it is rarely in use; if it is, the new one
-// waits next to it.
+// waits next to it. Not with --install-only: a LASS fix must not replace the launcher before the user's
+// Install click (a launcher change reaches Build\Dashboard.exe with the next plain npm run package).
 const launcher = join(instance, "Dashboard.exe");
-try { buildLauncher(launcher); }
-catch (e) {
-  try { buildLauncher(launcher + ".new"); say(`note: ${launcher} is in use; the new launcher is ${launcher}.new (rename it when it is free)\n`); }
-  catch (e2) { fail(`could not compile the launcher: ${String(e2.stdout ?? "")}${e2.message}`); }
+if (!installOnly) {
+  try { buildLauncher(launcher); }
+  catch (e) {
+    try { buildLauncher(launcher + ".new"); say(`note: ${launcher} is in use; the new launcher is ${launcher}.new (rename it when it is free)\n`); }
+    catch (e2) { fail(`could not compile the launcher: ${String(e2.stdout ?? "")}${e2.message}`); }
+  }
 }
 
 // Tidy: the flat app of the time before side-by-side builds, old app.old folders, and builds beyond three.
-const keep = new Set([next.current, next.previous, next.pending].filter(Boolean));
+const keep = new Set([id, next.current, next.previous, next.pending].filter(Boolean));
 const builds = readdirSync(appRoot, { withFileTypes: true }).filter((d) => d.isDirectory() && ID.test(d.name)).map((d) => ({ name: d.name, t: statSync(join(appRoot, d.name)).birthtimeMs })).sort((a, b) => b.t - a.t);
 for (const b of builds) if (keep.size < 3) keep.add(b.name);
 const tryRemove = (p) => { try { rmSync(p, { recursive: true, force: true }); } catch (e) { say(`note: ${p} could not be removed yet (${e.code ?? e.message}); it is removed on a later run\n`); } };
@@ -91,4 +100,4 @@ for (const n of readdirSync(appRoot)) if (!keep.has(n)) tryRemove(join(appRoot, 
 for (const n of readdirSync(instance)) if (/^app\.old(-\d+)?$/.test(n)) tryRemove(join(instance, n));
 
 const asar = statSync(join(target, "resources", "app.asar"));
-say(`\nPACKAGED OK  ${new Date().toISOString()}\n  build ${id}${asPending ? " (PENDING: tried on the next start, rolled back if it fails)" : " (current)"}\n  ${join(target, "Dashboard.exe")}\n  app.asar ${asar.size} bytes\n  launcher ${launcher}\n  state ${JSON.stringify(next)}\n`);
+say(`\nPACKAGED OK  ${new Date().toISOString()}\n  build ${id}${installOnly ? " (installed only: not current, not pending)" : asPending ? " (PENDING: tried on the next start, rolled back if it fails)" : " (current)"}\n  ${join(target, "Dashboard.exe")}\n  app.asar ${asar.size} bytes\n  launcher ${launcher}\n  state ${JSON.stringify(next)}\n`);

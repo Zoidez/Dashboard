@@ -112,4 +112,11 @@ button.grant:hover { filter: brightness(1.08); border-color: var(--ok); }
 .lass-bar .lass-row { display: flex; gap: 8px; align-items: flex-end; }
 .lass-bar .lass-row.end { justify-content: flex-end; }
 .lass-bar textarea { flex: 1; resize: none; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; }
+.lass-bar .lass-error { color: var(--err); margin: 0; }
+.lass-bar .lass-error ul { margin: 2px 0 0; padding-left: 20px; }
+.lass-bar .lass-summary { white-space: pre-wrap; font: inherit; margin: 0; max-height: 9em; overflow: auto; }
+.lass-bar .lass-files { margin: 0; padding-left: 20px; max-height: 10em; overflow: auto; }
+.lass-bar .lass-files li.red { color: var(--err); font-weight: 600; }
+.lass-bar .lass-diff { margin: 0; max-height: 18em; overflow: auto; font-size: .846rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px; white-space: pre; }
+.lass-bar .lass-confirm { display: flex; gap: 6px; align-items: center; }
 .newcard .lass-note ol { margin: 4px 0 0; padding-left: 20px; }

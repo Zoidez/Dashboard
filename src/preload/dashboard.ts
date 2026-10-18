@@ -22,4 +22,7 @@ contextBridge.exposeInMainWorld("dashboardHost", {
   // The LASS bar (LASS.md 7).
   lassAnswer(id: unknown, text: unknown): void { ipcRenderer.send("lass:answer", id, text); },
   lassDismiss(id: unknown): void { ipcRenderer.send("lass:dismiss", id); },
+  // LASS fixes (LASS.md 8): each step is the user's click; the answer is a reason when it cannot run.
+  lassFix(id: unknown, action: unknown, confirmedRed: unknown): Promise<string | null> { return ipcRenderer.invoke("lass:fix", id, action, confirmedRed); },
+  lassPatch(id: unknown): Promise<string> { return ipcRenderer.invoke("lass:patch", id); },
 });
