@@ -22,6 +22,15 @@ export class DailyBudget {
 
   left(kind: BudgetKind): number { return Math.max(0, this.limits[kind] - this.read().used[kind]); }
 
+  /** Returns a unit taken today (a fix run the model never answered). */
+  giveBack(kind: BudgetKind): void {
+    const s = this.read();
+    if (s.used[kind] <= 0) return;
+    s.used[kind]--;
+    mkdirSync(dirname(this.file), { recursive: true });
+    writeFileSync(this.file, JSON.stringify(s));
+  }
+
   /** Takes one unit; false when today's limit is reached. */
   take(kind: BudgetKind): boolean {
     const s = this.read();

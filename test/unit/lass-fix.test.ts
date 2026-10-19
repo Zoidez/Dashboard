@@ -16,7 +16,7 @@ import { Investigations } from "../../src/main/lass/investigations.js";
 import { DailyBudget } from "../../src/main/lass/budget.js";
 import { ActivityLog } from "../../src/main/lass/activity.js";
 import { LassFixes, type FixesDeps } from "../../src/main/lass/fixes.js";
-import { fixPrompt, runFix, runScript } from "../../src/main/lass/fix-run.js";
+import { claudeOutcome, fixPrompt, runFix, runScript } from "../../src/main/lass/fix-run.js";
 import { cleanUpFix, testFix, worktreeOf, type FixTestDeps } from "../../src/main/lass/fix-test.js";
 import type { ContainerBackend, FileSet, JobSpec } from "../../src/main/containers/backend.js";
 
@@ -353,4 +353,23 @@ test("Windows test: worktree, git's own check of the file list, commit on lass/<
   const noRecord: FixTestDeps["run"] = (cmd, args, cwd, o) => (args[0] === "scripts/record-host-suite.mjs" ? Promise.resolve({ code: 0, out: "" }) : run(cmd, args, cwd, o));
   writeFileSync(join(root, "data", "generator", "host-suite.json"), JSON.stringify({ schema: 2, records: [{ buildHash: "d".repeat(64), passedAt: "x", suites: [] }] }));
   await assert.rejects(testFix({ ...deps, run: noRecord }), /does not name the tested build/);
+});
+
+test("a fix run whose Claude never got an answer fails with the reason and does not count (2026-10-19)", async () => {
+  const log = [
+    JSON.stringify({ type: "system", subtype: "init", tools: ["Bash"] }),
+    JSON.stringify({ type: "system", subtype: "api_retry", attempt: 10 }),
+    JSON.stringify({ type: "assistant", message: { model: "<synthetic>", usage: { output_tokens: 0 }, content: [{ type: "text", text: "API Error: Connection refused" }] } }),
+    JSON.stringify({ type: "result", is_error: true, result: "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)", usage: { output_tokens: 0 } }),
+  ].join("\n");
+  assert.deepEqual(claudeOutcome(log), { error: "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)", answered: false });
+  assert.equal(claudeOutcome(JSON.stringify({ type: "result", is_error: false, usage: { output_tokens: 900 } })).answered, true);
+
+  const f = flow("", {});
+  (f.fixes as any).d.container.backend = new FakeBackend({ "out/fix.patch": Buffer.alloc(0), "out/status.json": Buffer.from('{"npmCi":0,"claude":1,"typecheck":0,"unit":1}'), "out/claude.jsonl": Buffer.from(log) });
+  const id = await identified(f);
+  assert.equal(f.fixes.start(id), null);
+  await until(() => f.invs.get(id)!.state === "identified" && !!f.invs.get(id)!.fix?.error);
+  assert.match(f.invs.get(id)!.fix!.error!, /^Claude stopped before changing anything: API Error: Connection refused.*does not count/);
+  assert.equal(f.fixes.view()!.left, 2, "the run is given back");
 });

@@ -115,6 +115,11 @@ export class LassFixes {
           bundle: () => (this.d.bundle ?? ((f) => this.defaultBundle(f)))(join(out, "repo.bundle")),
           progress: (p) => { this.d.investigations.setFix(id, { progress: p }); },
         }, brief, ac.signal);
+        if (!r.patch.trim() && (r.status.claude ?? 0) !== 0) {
+          const never = r.claude && !r.claude.answered;
+          if (never) this.d.budget.giveBack("fix");
+          throw new Error(`Claude stopped before changing anything: ${r.claude?.error ?? `exit ${r.status.claude}`}${never ? " (the model never answered, so this run does not count toward today's 2)" : ""}`);
+        }
         const review = reviewPatch(r.patch);
         this.d.activity.write("lass", "fix.review", id, { files: review.files.length, security: review.files.filter((f) => f.security).length, refused: review.refused.length, status: r.status });
         if (this.d.investigations.get(id)?.state !== "fixing") return;

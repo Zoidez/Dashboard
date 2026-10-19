@@ -140,3 +140,15 @@ test("anthropic profile: only lass-fix, the Anthropic-only proxy; prepare refuse
   internal = "true"; apiPod = 125;
   await assert.rejects(b.prepare(["anthropic"]), /lass-egress-api is not set up/);
 });
+
+test("prepare: a proxy pod that runs but does not accept connections is reported, not trusted (2026-10-19)", async () => {
+  const run: Runner = async (args) => {
+    if (args[0] === "machine") return { code: 0, stdout: Buffer.from("running"), stderr: "" };
+    if (args[0] === "network") return { code: 0, stdout: Buffer.from("true"), stderr: "" };
+    if (args[0] === "pod") return { code: 0, stdout: Buffer.from("Running"), stderr: "" };
+    if (args[0] === "exec") return { code: 1, stdout: Buffer.alloc(0), stderr: "" };   // nc -z: nothing listens
+    return { code: 0, stdout: Buffer.alloc(0), stderr: "" };
+  };
+  const b = new PodmanBackend({ podmanDir: mkdtempSync(join(tmpdir(), "pm-")), podmanExe: "podman.exe", run });
+  await assert.rejects(b.prepare(["anthropic"]), /lass-egress-api runs but does not accept connections/);
+});

@@ -23,6 +23,7 @@ export const MACHINE = "dashboard";
 /** Networks that must have no route out: a job on them reaches the outside only through a proxy. */
 export const INTERNAL_NETWORKS = ["lass-internal", "lass-fix"];
 
+const MACHINE_HINT = "Build\\data\\podman\\podman.cmd";
 /** A problem only the user can solve (shown as a step in the LASS bar). */
 export class UserStepError extends Error {}
 
@@ -112,6 +113,14 @@ export class PodmanBackend implements ContainerBackend {
       const r = await this.run(["pod", "inspect", proxy.pod, "--format", "{{.State}}"]);
       if (r.code !== 0) throw new UserStepError(`The proxy ${proxy.pod} is not set up: run setup\\lass-dev.ps1 once in PowerShell (it builds the container images and starts the proxies).`);
       if (r.stdout.toString("utf8").trim().toLowerCase() !== "running") await this.pm(["pod", "start", proxy.pod], { timeoutMs: 120_000 });
+      // Running is not enough: the proxy must accept connections (2026-10-19: Squid in a restart loop,
+      // the pod "Running", every request refused). Up to 30 s for a fresh start.
+      let listening = false;
+      for (let i = 0; i < 15 && !listening; i++) {
+        listening = (await this.run(["exec", `${proxy.pod}-proxy`, "nc", "-z", "127.0.0.1", "3128"], { timeoutMs: 15_000 })).code === 0;
+        if (!listening) await new Promise((res) => setTimeout(res, this.o.run ? 1 : 2000));
+      }
+      if (!listening) throw new UserStepError(`The proxy ${proxy.pod} runs but does not accept connections (its log: ${MACHINE_HINT} logs ${proxy.pod}-proxy). Run setup\\lass-dev.ps1 once in PowerShell to rebuild and restart it.`);
     }
   }
 

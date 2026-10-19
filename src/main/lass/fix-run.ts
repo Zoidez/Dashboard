@@ -55,6 +55,23 @@ export interface FixRunResult {
   patch: string;
   summary: string;
   status: { npmCi?: number; claude?: number; typecheck?: number; unit?: number; error?: string };
+  /** From Claude's session log: its final result text when it ended with an error, and whether the model produced any output. */
+  claude?: { error?: string; answered: boolean };
+}
+
+/** Reads the end of Claude's stream-json log: the result event says whether it failed and why. */
+export function claudeOutcome(jsonl: string): { error?: string; answered: boolean } {
+  let answered = false, error: string | undefined;
+  for (const line of jsonl.split("\n")) {
+    let ev: Record<string, any>;
+    try { ev = JSON.parse(line); } catch { continue; }
+    if (ev.type === "assistant" && ev.message?.model !== "<synthetic>" && Number(ev.message?.usage?.output_tokens) > 0) answered = true;
+    if (ev.type === "result") {
+      if (Number(ev.usage?.output_tokens) > 0) answered = true;
+      if (ev.is_error) error = String(ev.result ?? ev.terminal_reason ?? "error").replace(/[\u0000-\u001f]+/g, " ").slice(0, 300);
+    }
+  }
+  return { ...(error ? { error } : {}), answered };
 }
 
 export const FIX_TIMEOUT_MS = 100 * 60_000;
@@ -209,7 +226,7 @@ export async function runFix(d: FixRunDeps, b: FixBrief, signal?: AbortSignal): 
   }, end, check, say);
   let status: FixRunResult["status"] = {};
   try { status = JSON.parse(out["status.json"]?.toString("utf8") ?? "{}") as FixRunResult["status"]; } catch { status = { error: "unreadable status" }; }
-  const res: FixRunResult = { base, patch: out["fix.patch"]?.toString("utf8") ?? "", summary: (out["summary.md"]?.toString("utf8") ?? "").slice(0, 20_000), status };
+  const res: FixRunResult = { base, patch: out["fix.patch"]?.toString("utf8") ?? "", summary: (out["summary.md"]?.toString("utf8") ?? "").slice(0, 20_000), status, claude: claudeOutcome(out["claude.jsonl"]?.toString("utf8") ?? "") };
   writeFileSync(join(d.outDir, "result.json"), JSON.stringify({ base, status, at: new Date().toISOString() }, null, 2));
   return res;
 }

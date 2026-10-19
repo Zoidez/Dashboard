@@ -8,4 +8,6 @@ COPY squid.conf /etc/squid/squid.conf
 
 USER 10001
 EXPOSE 3128
-CMD ["squid", "-N", "-f", "/etc/squid/squid.conf"]
+# The PID file lives in /tmp, which survives a container restart inside the pod; a stale one names PID 1
+# (Squid itself) and Squid then refuses to start: "Squid is already running" in a loop (2026-10-19).
+CMD ["sh", "-c", "rm -f /tmp/squid.pid && exec squid -N -f /etc/squid/squid.conf"]
