@@ -72,7 +72,10 @@ export function triagePrompt(b: TriageBundle): string {
   return [
     RULES,
     "",
-    "Task: find out why the user is having trouble with the Dashboard. Name the problem if the data shows it; do not guess.",
+    "Task: decide what LASS does next. Two kinds of investigation:",
+    "1. The user asks for something (their own description below asks for a change, a new feature, a new look or a different behaviour). The user's words are the requirement, and the user is the judge of what the Dashboard should do: never answer that it is not a bug, out of scope, not worth doing or only a feature request. Answer identified true, category change-request, fixable by-fix-run, and say in summary what LASS will change. Two exceptions only: if the Dashboard can already do it (a setting, a menu item), fixable by-user with the steps; if it can only be done by weakening security, fixable no, and the summary names the protection it would weaken.",
+    "2. Something fails (repeated failed requests, errors, the user describes a fault). Name the problem if the data shows it; do not guess.",
+    "Security that no change may weaken: cards get no network, files, programs, DLL calls or Claude beyond what the user approved for them; the sandbox, the broker's checks, the approval canvas, the CLI gate and its spike, the validator and the security tests stay as strict as they are. Everything else may change.",
     `Signal (from the host): ${b.signal}`,
     ...(b.userText ? ["", "The user's own description (from the user, to you):", b.userText.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ").slice(0, 2000)] : []),
     ...(b.requests.length ? ["", "Recent card requests, each with its outcome and the generator's last reply:", ...b.requests.map((r, i) => [
@@ -83,8 +86,8 @@ export function triagePrompt(b: TriageBundle): string {
     "", "Recent activity of the Dashboard (newest last):", untrusted("activity log", b.activity, 6000),
     "", `Host state: ${b.hostState}`,
     "",
-    "Categories: missing-user-input (the user must supply something, e.g. an id), validation-bug, generator-bug, host-bug, environment (sign-in, CLI version, network), unknown.",
-    "fixable: by-user (only the user can resolve it; say how in userSteps), by-fix-run (the Dashboard's code must change), no.",
+    "Categories: change-request (the user asks for something the Dashboard does not do yet), missing-user-input (the user must supply something, e.g. an id), validation-bug, generator-bug, host-bug, environment (sign-in, CLI version, network), unknown.",
+    "fixable: by-user (only the user can resolve it, or the Dashboard can already do it; say how in userSteps), by-fix-run (the Dashboard's code must change: every change request that does not weaken security), no (only when it would weaken security, or the cause is outside the Dashboard and the user cannot act on it either).",
     'Answer format: {"identified": true or false, "category": "<one category>", "summary": "<at most 2 sentences for the user>", "evidence": ["<activity seq numbers you relied on>"], "fixable": "by-user" or "by-fix-run" or "no", "userSteps": ["<step the user must do>", ...]}',
   ].join("\n");
 }
@@ -94,7 +97,7 @@ export function triagePrompt(b: TriageBundle): string {
 export interface SameCardAnswer { sameCard: boolean; confidence: "high" | "medium" | "low"; why: string }
 export interface TriageAnswer {
   identified: boolean;
-  category: "missing-user-input" | "validation-bug" | "generator-bug" | "host-bug" | "environment" | "unknown";
+  category: "change-request" | "missing-user-input" | "validation-bug" | "generator-bug" | "host-bug" | "environment" | "unknown";
   summary: string;
   evidence: string[];
   fixable: "by-user" | "by-fix-run" | "no";
@@ -122,7 +125,7 @@ export function parseSameCard(text: string): SameCardAnswer {
   return { sameCard: j.sameCard, confidence: j.confidence as SameCardAnswer["confidence"], why: plain(j.why ?? "", 300, "why") };
 }
 
-const CATEGORIES = ["missing-user-input", "validation-bug", "generator-bug", "host-bug", "environment", "unknown"];
+const CATEGORIES = ["change-request", "missing-user-input", "validation-bug", "generator-bug", "host-bug", "environment", "unknown"];
 export function parseTriage(text: string): TriageAnswer {
   const j = jsonOnly(text);
   if (typeof j.identified !== "boolean") throw new Error("triage reply: identified must be true or false");

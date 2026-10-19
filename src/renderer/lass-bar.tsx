@@ -29,12 +29,12 @@ function FixPanel({ f, fx }: { f: LassFixView; fx: FixHost }) {
 
   if (f.state === "identified") return (
     <footer className="lass-bar" role="region" aria-label="LASS">
-      <strong>LASS found the problem</strong>
+      <strong>{f.kind === "change" ? "LASS can make this change" : "LASS found the problem"}</strong>
       {f.summary && <p>{f.summary}</p>}
       {err}
       {f.unavailable
         ? <p className="lass-note-text">LASS cannot fix it on this PC: {f.unavailable}.</p>
-        : <p>LASS can try to fix it. Claude (Opus) works on a copy of the Dashboard's code inside the sealed container (no access to your files, internet only through the proxy). Nothing on this PC changes until you have seen the changes and said so. This uses one of today's 2 fix runs ({f.left} left) and can take up to 100 minutes.</p>}
+        : <p>{f.kind === "change" ? "LASS can make it." : "LASS can try to fix it."} Claude (Opus) works on a copy of the Dashboard's code inside the sealed container (no access to your files, internet only through the proxy). Nothing on this PC changes until you have seen the changes and said so. This uses one of today's 2 fix runs ({f.left} left) and can take up to 100 minutes.</p>}
       {note}
       <div className="lass-row end">
         {!f.unavailable && <button className="primary" disabled={busy || f.left === 0} onClick={() => void act("start")}>Start the fix</button>}

@@ -150,7 +150,7 @@ queued -> rechecking -> triage -> (identified | asking-user) -> fixing -> verify
 - **Output:** JSON only, validated by the host:
 
 ```json
-{ "identified": true, "category": "missing-user-input|validation-bug|generator-bug|host-bug|environment|unknown",
+{ "identified": true, "category": "change-request|missing-user-input|validation-bug|generator-bug|host-bug|environment|unknown",
   "summary": "<2 sentences for the user>", "evidence": ["<event seq numbers>"], "fixable": "by-user|by-fix-run|no" }
 ```
 
@@ -158,6 +158,7 @@ queued -> rechecking -> triage -> (identified | asking-user) -> fixing -> verify
   - `by-user`: the summary goes on the New card and the investigation closes.
   - `by-fix-run`: on to fixing (section 8).
   - `identified: false`: on to asking the user.
+- **A user's request is a requirement (user decision 2026-10-19).** When the user asks for something (Help > Something's wrong, or an answer in the LASS bar), triage does not judge whether it is a bug, in scope or worth doing: the user decides what the Dashboard should do. Its answer is `change-request` with `by-fix-run`, and the fix run implements it completely. Only two other answers are allowed: `by-user` when the Dashboard can already do it (closes as "already possible", with the steps), and `no` when it can only be done by weakening security (closes as "failed: it would weaken security", naming the protection). Security that no change may weaken: cards get nothing beyond what the user approved; the sandbox, the broker's checks, the approval canvas, the CLI gate and its spike, the validator and the security tests stay as strict as they are. The fix run's prompt carries the same rule. (Before this, triage had only fault categories, so a plain request could only come back as "not identified" or "cannot fix"; seen 2026-10-19 with a request for a new theme.)
 
 ## 7. Asking the user
 

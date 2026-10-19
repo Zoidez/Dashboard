@@ -118,7 +118,8 @@ step done
 /** The prompt: the user's words and the rules are instructions; everything else is marked untrusted. */
 export function fixPrompt(b: FixBrief): string {
   return [
-    "You are LASS, fixing a problem in the Dashboard (this repository). Read CLAUDE.md and the docs it names first, and follow them: doc updates in docs\\, a decision-log entry in docs/PROJECT.md, tests for the fix.",
+    "You are LASS, changing the Dashboard (this repository): either fixing a fault or making a change the user asked for. A user's request is the requirement: implement it completely; do not cut it down or argue it away. Read CLAUDE.md and the docs it names first, and follow them: doc updates in docs\\, a decision-log entry in docs/PROJECT.md, tests for the change.",
+    "The one limit: never weaken security (cards get nothing beyond what the user approved; the sandbox, the broker, the approval canvas, the CLI gate, the validator and the security tests stay as strict as they are). If the request cannot be met without weakening it, change nothing and explain why in summary.md.",
     "",
     "Where you are: a sealed Linux container with a copy of the repository at /work/src (branch " + b.branch + "). There is no Windows here: Electron, the e2e tests, the spike, Podman and the host suite cannot run. Run `npm run typecheck` and `node scripts/run-tests.mjs test/unit` (tests that need Windows skip or fail here; say which). Do not commit, do not push, do not use git remotes: the host takes your changes with git diff. The only network here is the Claude API: the packages of the current lock file are installed, nothing else can be downloaded, so do not add dependencies.",
     "",
@@ -126,7 +127,7 @@ export function fixPrompt(b: FixBrief): string {
     "",
     "When done, write /work/out/summary.md: first line one sentence for the user saying what you changed; then what caused the problem, what you changed and why, which tests you added, what you could not test here. Plain words.",
     "",
-    "## The problem (from the Dashboard host)",
+    "## The task (from the Dashboard host)",
     b.problem,
     ...(b.userText ? ["", "## What the user wrote (instructions from the user)", b.userText] : []),
     ...(b.triageSummary ? ["", "## The quick check's verdict", untrusted("triage summary", b.triageSummary)] : []),

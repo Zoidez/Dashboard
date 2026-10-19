@@ -63,8 +63,10 @@ export interface LassFixView {
   /** fixing: container, review, testing, ready, installing */
   stage?: string;
   progress?: string;
-  /** Triage's summary of the problem. */
+  /** Triage's summary of the problem or of the requested change. */
   summary?: string;
+  /** "change": the user asked for a change; "fault": something fails. */
+  kind?: "change" | "fault";
   error?: string;
   /** Fix runs left today; why fix runs are unavailable on this PC, if they are. */
   left: number;

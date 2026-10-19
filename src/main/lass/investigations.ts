@@ -20,7 +20,12 @@ import { randomBytes } from "node:crypto";
 /** The function an investigation blocks. "general": a "Something's wrong" report blocks nothing. */
 export type LassFunction = "newcard.create" | "general";
 export type InvState = "queued" | "rechecking" | "triage" | "identified" | "asking-user" | "fixing" | "verifying" | "closed";
-export type CloseReason = "fixed" | "not a bug" | "resolved earlier" | "dismissed" | `failed: ${string}`;
+export type CloseReason = "fixed" | "not a bug" | "already possible" | "resolved earlier" | "dismissed" | `failed: ${string}`;
+
+/** Where triage sends an investigation; category is triage's (change-request: the user asked for a change). */
+export type TriageStep =
+  | { next: "closed"; reason: CloseReason; summary?: string; userSteps?: string[]; category?: string }
+  | { next: "asking-user" | "identified"; summary?: string; category?: string };
 
 export interface Signal {
   kind: "repeat-failure" | "user-report";
@@ -46,6 +51,8 @@ export interface Investigation {
   userAnswer?: string;
   /** The user closed the result notice. */
   acknowledged?: boolean;
+  /** Triage's category; "change-request": the user asked for a change (a requirement, not a fault). */
+  category?: string;
   /** The fix (LASS phase 4). */
   fix?: FixState;
 }
@@ -75,7 +82,7 @@ export interface InvestigationDeps {
   /** Is the signal still true? (rechecking; host-only, no model) */
   stillTrue: (inv: Investigation) => Promise<boolean>;
   /** Triage (phase 2): returns where the investigation goes next. Absent in phase 1. */
-  triage?: (inv: Investigation) => Promise<{ next: "closed"; reason: CloseReason; summary?: string; userSteps?: string[] } | { next: "asking-user" | "identified"; summary?: string }>;
+  triage?: (inv: Investigation) => Promise<TriageStep>;
   /** Time limits per state, ms (a timeout closes the investigation as "failed: timeout"). */
   limits?: Partial<Record<InvState, number>>;
   now?: () => Date;
@@ -265,6 +272,7 @@ export class Investigations extends EventEmitter {
         if (t === "timeout") { this.close(inv, "failed: timeout", "triage took too long"); continue; }
         if (t === "cancelled") continue;
         if (t.summary) inv.summary = t.summary;
+        if (t.category) inv.category = t.category;
         if (t.next === "closed") { if (t.userSteps) inv.userSteps = t.userSteps; this.close(inv, t.reason); continue; }
         // The bar asks once: after the user's answer, an investigation that is still unclear closes.
         if (t.next === "asking-user" && inv.userAnswer) { this.close(inv, "failed: the problem could not be identified"); continue; }

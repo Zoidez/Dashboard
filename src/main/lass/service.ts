@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { ActivityEvent, ActivityLog } from "./activity.js";
 import type { DailyBudget } from "./budget.js";
 import type { FixBrief } from "./fix-run.js";
-import { Investigations, type CloseReason, type Investigation } from "./investigations.js";
+import { Investigations, type Investigation, type TriageStep } from "./investigations.js";
 import type { PromptHistory, PromptRecord } from "./prompts.js";
 import { parseSameCard, parseTriage, runTriage, sameCardPrompt, triagePrompt, type RequestForTriage, type TriageAnswer } from "./triage.js";
 
@@ -111,7 +111,7 @@ export class LassService {
     ].join("\n\n");
     return {
       invId: inv.id, branch: `lass/${inv.id}`,
-      problem: `Signal: ${b.signal}.\nHost state: ${b.hostState}.\nInvestigation ${inv.id}, opened ${inv.opened}.`,
+      problem: `${inv.category === "change-request" ? "Kind: a change the user asked for. The user's words are the requirement: implement it completely, as if a test for it were failing." : "Kind: a fault to fix."}\nSignal: ${b.signal}.\nHost state: ${b.hostState}.\nInvestigation ${inv.id}, opened ${inv.opened}.`,
       ...(inv.summary ? { triageSummary: inv.summary } : {}),
       ...(b.userText ? { userText: b.userText } : {}),
       evidence,
@@ -119,7 +119,7 @@ export class LassService {
   }
 
   /** Triage (LASS.md 6), and what its answer means for the investigation. */
-  private async triage(inv: Investigation): Promise<{ next: "closed"; reason: CloseReason; summary?: string; userSteps?: string[] } | { next: "asking-user" | "identified"; summary?: string }> {
+  private async triage(inv: Investigation): Promise<TriageStep> {
     if (!this.d.budget.take("triage")) return { next: "closed", reason: "failed: today's 10 quick checks are used up", summary: "LASS has used today's quick checks; it can look into this again tomorrow." };
     let a: TriageAnswer;
     try {
@@ -129,10 +129,16 @@ export class LassService {
       return { next: "closed", reason: `failed: ${(e as Error).message.slice(0, 160)}` };
     }
     this.d.activity.write("lass", "triage", inv.id, { ...a });
+    const change = a.category === "change-request";
+    // A request from the user is a requirement (user decision 2026-10-19): it goes to a fix run unless the
+    // Dashboard can already do it, or it would weaken security. An unclear answer to a user's request
+    // still asks the user once instead of closing.
     if (!a.identified) return { next: "asking-user", summary: a.summary };
-    if (a.fixable === "by-user") return { next: "closed", reason: "not a bug", summary: a.summary, userSteps: a.userSteps };
-    if (a.fixable === "by-fix-run") return { next: "identified", summary: a.summary };
-    return { next: "closed", reason: "failed: LASS cannot fix this", summary: a.summary };
+    if (a.fixable === "by-user") return { next: "closed", reason: change ? "already possible" : "not a bug", summary: a.summary, userSteps: a.userSteps, category: a.category };
+    if (a.fixable === "by-fix-run") return { next: "identified", summary: a.summary, category: a.category };
+    return change
+      ? { next: "closed", reason: "failed: it would weaken security", summary: a.summary, category: a.category }
+      : { next: "closed", reason: "failed: LASS cannot fix this", summary: a.summary, category: a.category };
   }
 
   /** For the bar and the New card. */

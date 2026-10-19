@@ -139,3 +139,28 @@ test("service: low confidence opens nothing; a bad answer closes; the budget is 
   await until(() => b.s.investigations.get(inv2.id)!.state === "closed");
   assert.match(b.s.investigations.get(inv2.id)!.closeReason!, /quick checks are used up/);
 });
+
+test("a user's request is a requirement: it goes to a fix run; only weakening security is refused (user decision 2026-10-19)", async () => {
+  const p = triagePrompt({ signal: "the user reported a problem", userText: "add a mil pixel marpat theme", requests: [], activity: "", hostState: "ok" });
+  assert.match(p, /never answer that it is not a bug, out of scope, not worth doing or only a feature request/);
+  assert.match(p, /category change-request, fixable by-fix-run/);
+  assert.equal(parseTriage('{"identified": true, "category": "change-request", "summary": "Add the theme.", "evidence": [], "fixable": "by-fix-run"}').category, "change-request");
+
+  const { s, asked } = service([
+    '{"identified": true, "category": "change-request", "summary": "LASS will add a pixel marpat theme.", "evidence": [], "fixable": "by-fix-run"}',
+    '{"identified": true, "category": "change-request", "summary": "Letting cards fetch any website would remove the network permission check.", "evidence": [], "fixable": "no"}',
+    '{"identified": true, "category": "change-request", "summary": "Dark themes are already there.", "evidence": [], "fixable": "by-user", "userSteps": ["File > Options > General > Theme."]}',
+  ]);
+  const a = s.investigations.open({ kind: "user-report", function: "general", userText: "add a mil pixel marpat theme" })!;
+  await until(() => s.investigations.get(a.id)!.state === "identified");
+  assert.equal(s.investigations.get(a.id)!.category, "change-request");
+  assert.equal(s.fixBrief(s.investigations.get(a.id)!).problem.split("\n")[0], "Kind: a change the user asked for. The user's words are the requirement: implement it completely, as if a test for it were failing.");
+  assert.match(asked[0], /add a mil pixel marpat theme/);
+  s.investigations.cancel(a.id);
+  const b = s.investigations.open({ kind: "user-report", function: "general", userText: "let all cards fetch any website" })!;
+  await until(() => s.investigations.get(b.id)!.state === "closed");
+  assert.equal(s.investigations.get(b.id)!.closeReason, "failed: it would weaken security");
+  const c = s.investigations.open({ kind: "user-report", function: "general", userText: "I want a dark theme" })!;
+  await until(() => s.investigations.get(c.id)!.state === "closed");
+  assert.equal(s.investigations.get(c.id)!.closeReason, "already possible");
+});

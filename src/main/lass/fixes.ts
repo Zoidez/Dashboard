@@ -71,7 +71,7 @@ export class LassFixes {
     return {
       id: inv.id, state: inv.state as FixView["state"], left: this.d.budget.left("fix"),
       ...(this.unavailable() ? { unavailable: this.unavailable() } : {}),
-      ...(inv.summary ? { summary: inv.summary } : {}),
+      ...(inv.summary ? { summary: inv.summary } : {}), kind: inv.category === "change-request" ? "change" : "fault",
       ...(f.stage ? { stage: f.stage } : {}), ...(f.progress ? { progress: f.progress } : {}), ...(f.error ? { error: f.error } : {}),
       ...(f.files ? { files: f.files, refused: f.refused ?? [], added: f.added, removed: f.removed, checks: f.checks } : {}),
       ...(f.summary ? { fixSummary: f.summary } : {}), ...(f.build ? { build: f.build } : {}), ...(f.branch ? { branch: f.branch } : {}),
