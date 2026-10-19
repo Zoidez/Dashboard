@@ -3,11 +3,12 @@
  * under the instance root. Nothing goes to %APPDATA% or the user profile.
  *
  * Root:
- *   packaged: <root>/app/Dashboard.exe  -> <root>
+ *   packaged: <root>/app/<build-id>/Dashboard.exe -> <root> (side by side, LASS phase 3)
+ *             <root>/app/Dashboard.exe            -> <root> (the flat layout before it)
  *   dev/test: --instance=<path> (required; relative to the working directory)
  */
 import { existsSync, statSync } from "node:fs";
-import { dirname, isAbsolute, resolve, join } from "node:path";
+import { basename, dirname, isAbsolute, resolve, join } from "node:path";
 
 export interface InstancePaths {
   root: string;
@@ -31,7 +32,13 @@ export function instanceRootFrom(argv: readonly string[], isPackaged: boolean, e
     const p = flag.slice("--instance=".length);
     return isAbsolute(p) ? resolve(p) : resolve(cwd, p);
   }
-  if (isPackaged) return dirname(dirname(exePath));
+  if (isPackaged) {
+    // Side by side (LASS phase 3): <root>/app/<build-id>/Dashboard.exe. Before: <root>/app/Dashboard.exe.
+    // (2026-10-19: the side-by-side build took <root>/app as its instance and started empty.)
+    const dir = dirname(exePath), parent = dirname(dir);
+    if (/^[0-9a-f]{12}$/.test(basename(dir)) && basename(parent).toLowerCase() === "app") return dirname(parent);
+    return parent;
+  }
   throw new Error("Unpackaged runs need --instance=<path to the instance folder>.");
 }
 

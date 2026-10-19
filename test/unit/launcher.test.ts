@@ -102,3 +102,12 @@ test("only well-formed build ids count; a missing pending build rolls back; old 
   assert.ok(left.includes(A) && left.includes(B), "current and previous stay");
   assert.equal(left.length, 3, `three builds kept: ${left.join(",")}`);
 });
+
+test("a packaged build finds its instance: side by side (app/<build-id>/) and the older flat layout", async () => {
+  const { instanceRootFrom } = await import("../../src/main/instance.js");
+  const root = resolve("D:/X/Build");
+  assert.equal(instanceRootFrom([], true, join(root, "app", "02d730f76660", "Dashboard.exe"), "C:/"), root, "side by side: three folders up (2026-10-19 bug: it took Build/app)");
+  assert.equal(instanceRootFrom([], true, join(root, "app", "Dashboard.exe"), "C:/"), root, "flat: two folders up");
+  assert.equal(instanceRootFrom([], true, join(root, "other", "02d730f76660", "Dashboard.exe"), "C:/"), join(root, "other"), "only under an app folder");
+  assert.equal(instanceRootFrom(["--instance=D:/Y"], true, join(root, "app", "02d730f76660", "Dashboard.exe"), "C:/"), resolve("D:/Y"), "--instance wins");
+});
