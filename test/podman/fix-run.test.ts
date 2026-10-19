@@ -28,7 +28,9 @@ test("fix run: bundle in, npm ci through the proxy, patch and checks out, contai
       execFileSync("git", ["-C", REPO, "bundle", "create", f, "HEAD"], { stdio: "ignore" });
       return { data: readFileSync(f), base: execFileSync("git", ["-C", REPO, "rev-parse", "HEAD"]).toString().trim() };
     },
-    claudeCommand: "printf '\\nLASS fix-run test line.\\n' >> docs/CARDS.md && printf 'Test fix: one line added to docs/CARDS.md.\\n' > /work/out/summary.md",
+    // The stand-in also does what Claude needs first: reach the API through the fix network's proxy
+    // (2026-10-19: that proxy was down and only the real run noticed).
+    claudeCommand: "printf '\\nLASS fix-run test line.\\n' >> docs/CARDS.md && printf 'Test fix: one line added to docs/CARDS.md.\\napi %s\\n' \"$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ 2>&1)\" > /work/out/summary.md",
     progress: (s) => { if (steps[steps.length - 1] !== s) steps.push(s); },
   }, { invId: "inv-20261018000000-000000", branch: "lass/inv-20261018000000-000000", problem: "test", evidence: "none" });
   console.log("steps:", steps.join(" / "), "\nstatus:", JSON.stringify(r.status), "\nresults in", out);
@@ -40,6 +42,7 @@ test("fix run: bundle in, npm ci through the proxy, patch and checks out, contai
   assert.deepEqual(review.refused, []);
   assert.deepEqual(review.files.map((f) => f.path), ["docs/CARDS.md"]);
   assert.match(r.summary, /^Test fix/);
+  assert.match(r.summary, /\napi [1-5]\d\d\b/, `the fix job reaches the Claude API through lass-egress-api (got: ${r.summary.split("\n")[1]})`);
   const pods = execFileSync(opts!.podmanExe, ["pod", "ls", "--format", "{{.Name}}"], { env: podmanEnv(opts!.podmanDir) }).toString();
   assert.doesNotMatch(pods, /job-lass-fix-/, "the fix container is removed");
 });
