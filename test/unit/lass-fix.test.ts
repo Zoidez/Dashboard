@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classify, numstatPaths, plainPath, reviewPatch } from "../../src/main/lass/patch.js";
@@ -328,6 +328,12 @@ test("Windows test: worktree, git's own check of the file list, commit on lass/<
     resolve({ code: 0, out: "" });
   });
   const deps: FixTestDeps = { repo, root, invId, base, patchFile: join(fixDir, "fix.patch"), summaryLine: "Fixed cards", logFile: join(fixDir, "windows.log"), run };
+  // What a failed earlier test left behind (2026-10-19): the folder, no longer a git worktree, with the
+  // node_modules junction still in it. The test clears it by itself and never reaches the project's packages.
+  const left = worktreeOf(root, invId);
+  mkdirSync(join(left, "pack", "win-unpacked", "resources"), { recursive: true });
+  writeFileSync(join(left, "pack", "win-unpacked", "resources", "app.asar"), "old");
+  symlinkSync(join(repo, "node_modules"), join(left, "node_modules"), "junction");
   const r = await testFix(deps);
   const wt = worktreeOf(root, invId);
   assert.equal(r.worktree, wt);

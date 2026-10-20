@@ -13,7 +13,7 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { buildHash, recordedHashes } from "../generator/host-suite.js";
 import { numstatPaths, reviewPatch } from "./patch.js";
@@ -63,7 +63,28 @@ function defaultRun(logFile: string): NonNullable<FixTestDeps["run"]> {
   });
 }
 
-const asarId = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 12);
+/**
+ * Reads app.asar as a plain file. Inside Electron, fs treats *.asar as an archive to open (and keeps it open):
+ * the read failed and the open handle then stopped the worktree from being deleted (2026-10-19).
+ */
+function readPlain(file: string): Buffer {
+  const p = process as NodeJS.Process & { noAsar?: boolean };
+  const before = p.noAsar;
+  p.noAsar = true;
+  try { return readFileSync(file); } finally { p.noAsar = before; }
+}
+const asarId = (file: string) => createHash("sha256").update(readPlain(file)).digest("hex").slice(0, 12);
+
+/** Deletes what is left of a work folder git could not delete; the node_modules junction goes first, so the project's packages are never reached. */
+function removeLeftover(wt: string): void {
+  const nm = join(wt, "node_modules");
+  try { if (lstatSync(nm).isSymbolicLink()) unlinkSync(nm); } catch { /* no junction */ }
+  if (existsSync(nm) && lstatSync(nm).isSymbolicLink()) throw new Error(`could not remove the junction ${nm}`);
+  const p = process as NodeJS.Process & { noAsar?: boolean };
+  const before = p.noAsar;
+  p.noAsar = true;   // pack/win-unpacked/resources/app.asar is a file to delete, not a folder to walk
+  try { rmSync(wt, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); } finally { p.noAsar = before; }
+}
 
 export async function testFix(d: FixTestDeps, signal?: AbortSignal): Promise<FixTestResult> {
   mkdirSync(dirname(d.logFile), { recursive: true });
@@ -85,7 +106,9 @@ export async function testFix(d: FixTestDeps, signal?: AbortSignal): Promise<Fix
   const review = reviewPatch(patch);
   if (review.refused.length) throw new Error(`the patch is refused: ${review.refused[0]}`);
 
-  if (existsSync(wt)) throw new Error(`the work folder ${wt} already exists (an earlier test of this fix); reject the fix to clean up`);
+  // An earlier test of this fix may have left its worktree, folder or branch: clear them first.
+  await cleanUpFix(d.repo, d.root, d.invId, false, d.logFile, run);
+  if (existsSync(wt)) throw new Error(`the work folder ${wt} from an earlier test could not be removed (a file in it may be open); close what uses it, or restart Windows, and try again`);
   await step("worktree", "git", ["-C", d.repo, "worktree", "add", "-b", branch, wt, d.base], d.repo);
   const listed = await step("check the patch", "git", ["apply", "--check", "--numstat", d.patchFile], wt, false, true);
   const gitPaths = numstatPaths(listed).sort(), hostPaths = review.files.map((f) => f.path).sort();
@@ -125,6 +148,8 @@ export async function cleanUpFix(repo: string, root: string, invId: string, keep
     try { if (lstatSync(nm).isSymbolicLink()) unlinkSync(nm); } catch { /* no junction */ }
     if (existsSync(nm) && lstatSync(nm).isSymbolicLink()) throw new Error(`could not remove the junction ${nm}`);
     await r("git", ["-C", repo, "worktree", "remove", "--force", wt], repo, {});
+    // git unregisters the worktree even when it cannot delete every file; delete the rest.
+    if (existsSync(wt)) removeLeftover(wt);
   }
   await r("git", ["-C", repo, "worktree", "prune"], repo, {});
   if (!keepBranch) await r("git", ["-C", repo, "branch", "-D", branchOf(invId)], repo, {});
